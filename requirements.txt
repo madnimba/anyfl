@@ -1,0 +1,6 @@
+# Core dependencies (install PyTorch separately for the correct CUDA build)
+numpy
+scikit-learn
+scikit-image
+scipy
+# torchvision is used for datasets/augmentations; install with torch together (see README)

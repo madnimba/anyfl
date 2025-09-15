@@ -1,0 +1,6 @@
+.venv
+MNIST
+cifar-10-python.tar.gz
+__pycache__
+cifar-10-batches-py
+clusters
