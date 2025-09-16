@@ -11,3 +11,10 @@ python3 run_bank_clustering.py \
   --restarts 120 --daem --min_pi 0.10 \
   --weight_bits --trim_em --tau_hi 0.92 \
   --seed 7
+
+
+  python3 run_har_clustering.py \
+  --selector mi --keep_top 128 \
+  --pca 256 --method auto --overspec 20 \
+  --cov_type full --restarts 25 --seed 7
+

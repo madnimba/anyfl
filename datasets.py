@@ -126,6 +126,49 @@ def load_bank(variant="full", n_samples=None, drop_duration=False):
     return X, y
 
 
+def load_ucihar(n_samples=None):
+    """
+    UCI HAR (Human Activity Recognition) via OpenML.
+    Returns:
+        X : np.ndarray, shape [N, D], float32
+        y : np.ndarray, shape [N], int64 (labels 0..C-1)
+    """
+    import pandas as pd
+    from sklearn.datasets import fetch_openml
+
+    tries = [
+        dict(name="har", version=1),                 # common alias on OpenML
+        dict(data_id=1478),                          # known dataset id
+        dict(name="Human Activity Recognition Using Smartphones"),
+        dict(name="UCI HAR Dataset"),
+    ]
+    last_err = None
+    for kw in tries:
+        try:
+            X_df, y_ser = fetch_openml(as_frame=True, return_X_y=True, **kw)
+
+            # Ensure numeric features (HAR should already be numeric, but guard anyway)
+            for c in X_df.columns:
+                if not np.issubdtype(X_df[c].dtype, np.number):
+                    X_df[c] = pd.to_numeric(X_df[c], errors="coerce").fillna(0.0)
+
+            X = X_df.to_numpy(dtype=np.float32)
+
+            # Factorize labels to 0..C-1 (OpenML may provide strings like 'WALKING', etc.)
+            y_codes, _ = pd.factorize(y_ser.astype(str), sort=True)
+            y = y_codes.astype(np.int64)
+
+            if n_samples is not None:
+                X = X[:n_samples]
+                y = y[:n_samples]
+            return X, y
+        except Exception as e:
+            last_err = e
+            continue
+
+    raise RuntimeError(f"Could not fetch UCI HAR from OpenML. Last error: {last_err}")
+
+
 def get_dataset(name, n_samples=None):
     if name.lower() == 'mnist':
         return load_mnist(n_samples)
@@ -151,5 +194,7 @@ def get_dataset(name, n_samples=None):
         return load_bank(variant="full", n_samples=n_samples, drop_duration=True)
     elif name.lower() == 'bank-additional':
         return load_bank(variant="additional", n_samples=n_samples, drop_duration=True)
+    elif name.lower() in ('uci_har', 'har', 'human activity recognition'):
+        return load_ucihar(n_samples)
     else:
         raise ValueError(f"Unknown dataset: {name}")
