@@ -2,3 +2,12 @@ python3 run_mushroom_clustering.py --selector mrmr --mrmr_alpha 0.5 --keep_top 6
   --method bmm --restarts 50 --daem --seed 42
 
 restarts 50/100 
+
+
+python3 run_bank_clustering.py \
+  --variant full --drop_duration \
+  --selector mrmr --mrmr_alpha 0.5 --keep_top 8 \
+  --method auto --overspec 6 \
+  --restarts 120 --daem --min_pi 0.10 \
+  --weight_bits --trim_em --tau_hi 0.92 \
+  --seed 7
