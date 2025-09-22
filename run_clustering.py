@@ -20,6 +20,8 @@ args = parser.parse_args()
 DATASET_NAME = args.dataset.upper()
 USE_TRAIN_SIZE = args.train_size
 
+print(DATASET_NAME)
+
 import numpy as np
 from collections import Counter, defaultdict
 import math, time, random
@@ -135,6 +137,9 @@ def spherical_kmeans_assign(emb, centers):
 # ----------------- DATA -----------------
 tf = transforms.ToTensor()
 mnist = datasets.MNIST('.', train=True, download=True, transform=tf)
+if DATASET_NAME == 'FASHIONMNIST':
+    print("FashionMNIST")
+    mnist = datasets.FashionMNIST('.', train=True, download=True, transform=tf)
 
 X_left, X_right, Y = [], [], []
 N = len(mnist) if USE_TRAIN_SIZE is None else min(USE_TRAIN_SIZE, len(mnist))

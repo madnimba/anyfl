@@ -17,6 +17,18 @@ def load_mnist(n_samples=None):
     Y = np.array(Y)
     return X, Y
 
+def load_fashion_mnist(n_samples=None):
+    tf = transforms.ToTensor()
+    mnist = datasets.FashionMNIST('.', train=True, download=True, transform=tf)
+    X, Y = [], []
+    for i in range(len(mnist) if n_samples is None else n_samples):
+        img, lbl = mnist[i]
+        X.append(img.numpy())
+        Y.append(lbl)
+    X = np.array(X)
+    Y = np.array(Y)
+    return X, Y
+
 def load_cifar10(n_samples=None):
     tf = transforms.ToTensor()
     cifar = datasets.CIFAR10('.', train=True, download=True, transform=tf)
@@ -196,5 +208,7 @@ def get_dataset(name, n_samples=None):
         return load_bank(variant="additional", n_samples=n_samples, drop_duration=True)
     elif name.lower() in ('uci_har', 'har', 'human activity recognition'):
         return load_ucihar(n_samples)
+    elif name.lower() == 'fashionmnist':
+        return load_fashion_mnist(n_samples)
     else:
         raise ValueError(f"Unknown dataset: {name}")

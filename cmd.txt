@@ -1,5 +1,5 @@
 python3 run_mushroom_clustering.py --selector mrmr --mrmr_alpha 0.5 --keep_top 6 \
-  --method bmm --restarts 50 --daem --seed 42
+  --method bmm --restarts 100 --daem --seed 42
 
 restarts 50/100 
 
