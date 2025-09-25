@@ -18,3 +18,5 @@ python3 run_bank_clustering.py \
   --pca 256 --method auto --overspec 20 \
   --cov_type full --restarts 25 --seed 7
 
+
+python run_har_clustering.py   --method auto --n_classes 6 --selector mrmr --keep_top 80 --pca 64 --seed 42

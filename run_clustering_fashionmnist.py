@@ -13,7 +13,7 @@
 
 import argparse
 parser = argparse.ArgumentParser(description="Unsupervised clustering for MNIST/CIFAR-10")
-parser.add_argument('--dataset', type=str, default='MNIST', help='Dataset name: MNIST or CIFAR10')
+parser.add_argument('--dataset', type=str, default='FashionMNIST', help='Dataset name: MNIST or CIFAR10')
 parser.add_argument('--train_size', type=int, default=None, help='Number of training samples to use')
 args = parser.parse_args()
 
@@ -61,7 +61,7 @@ CDAE_NOISE_STD = 0.15
 CDAE_MASK_PROB = 0.10
 
 # SimCLR
-SIMCLR_EPOCHS = 40
+SIMCLR_EPOCHS = 60
 SIMCLR_LR = 1e-3
 SIMCLR_LATENT = 64
 SIMCLR_TEMP = 0.2
@@ -74,7 +74,7 @@ RUN_CROSS_VIEW = False  # set True to try left vs right positive pairs
 
 # === Semi-supervised fine-tune (SupCon) ===
 LABELED_FRAC = 0.05       # 2% labeled
-SUPCON_EPOCHS = 15        # 10–20 works well
+SUPCON_EPOCHS = 20       # 10–20 works well
 SUPCON_LR = 1e-4
 SUPCON_TEMP = 0.17
 

@@ -20,15 +20,24 @@ from collections import deque, defaultdict
 import random
 from typing import Dict, Any, Tuple, Optional, List
 
+
+import hashlib
+
+def _groups_signature(groups: torch.Tensor, k: int = 8) -> str:
+    g = groups.detach().cpu().contiguous().numpy().astype(np.int64)
+    return hashlib.sha1(g.tobytes()).hexdigest()[:k]
+
+
 # ==============================
 # CONFIG
 # ==============================
-# DATASETS = ['MNIST', 'FashionMNIST', 'KMNIST']  # keep as-is
-DATASETS = ['MNIST']
-EPOCHS = 50
+# DATASETS
+#DATASETS = ['MNIST', 'CIFAR10', 'FashionMNIST']
+DATASETS = ['HAR','MUSHROOM']  # ADD: limit to MNIST for quicker testing
+EPOCHS = 100
 BATCH_SIZE = 128
-TRAIN_SAMPLES = 5000
-TEST_SAMPLES = 1000
+FRACTION_TRAIN = 0.85  # 85% train
+FRACTION_TEST  = 0.15  # 15% test (computed as remainder to ensure sum matches)
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 SEED = 0
 
@@ -212,6 +221,215 @@ def generate_cluster_swapped_attack_from_perm(
     return XA_sw
 
 
+
+
+
+# === NEW: additional swap strategies ===
+
+def _random_derangement(K: int, rng: np.random.Generator) -> np.ndarray:
+    perm = np.arange(K)
+    while True:
+        rng.shuffle(perm)
+        if not np.any(perm == np.arange(K)):  # no fixed points
+            return perm
+
+@torch.no_grad()
+def generate_cluster_swapped_attack_round_robin(
+    XA: torch.Tensor,
+    groups: torch.Tensor
+) -> torch.Tensor:
+    """Cluster i -> i+1 (mod K). Replicate donors to match sizes; no leftovers."""
+    XA_sw = XA.clone()
+    uniq = sorted(torch.unique(groups).tolist())
+    K = len(uniq)
+    cluster_to_indices = {g: (groups == g).nonzero(as_tuple=True)[0] for g in uniq}
+    pos = {gid:i for i,gid in enumerate(uniq)}
+    for gi in uniq:
+        i = pos[gi]
+        gj = uniq[(i + 1) % K]
+        idx_i = cluster_to_indices.get(gi, torch.empty(0, dtype=torch.long))
+        idx_j = cluster_to_indices.get(gj, torch.empty(0, dtype=torch.long))
+        if len(idx_i) == 0 or len(idx_j) == 0: 
+            continue
+        reps = (len(idx_i) + len(idx_j) - 1) // len(idx_j)
+        idx_j_rep = idx_j.repeat(reps)[:len(idx_i)]
+        XA_sw[idx_i] = XA[idx_j_rep]
+    return XA_sw
+
+@torch.no_grad()
+def generate_cluster_swapped_attack_random_clusters(
+    XA: torch.Tensor,
+    groups: torch.Tensor,
+    seed: int = SEED
+) -> torch.Tensor:
+    """Random derangement on clusters (uniform), replicate donors to match sizes."""
+    XA_sw = XA.clone()
+    uniq = sorted(torch.unique(groups).tolist())
+    K = len(uniq)
+    rng = np.random.default_rng(seed)
+    perm = _random_derangement(K, rng)
+    src_to_dst = {int(uniq[i]): int(uniq[perm[i]]) for i in range(K)}
+    cluster_to_indices = {g: (groups == g).nonzero(as_tuple=True)[0] for g in uniq}
+    for s in uniq:
+        t = src_to_dst[s]
+        idx_s = cluster_to_indices.get(s, torch.empty(0, dtype=torch.long))
+        idx_t = cluster_to_indices.get(t, torch.empty(0, dtype=torch.long))
+        if len(idx_s) == 0 or len(idx_t) == 0:
+            continue
+        reps = (len(idx_s) + len(idx_t) - 1) // len(idx_t)
+        idx_t_rep = idx_t.repeat(reps)[:len(idx_s)]
+        XA_sw[idx_s] = XA[idx_t_rep]
+    return XA_sw
+
+@torch.no_grad()
+def generate_random_per_sample_swap(
+    XA: torch.Tensor,
+    groups: Optional[torch.Tensor] = None,
+    seed: int = SEED,
+    cross_cluster: bool = True
+) -> torch.Tensor:
+    """
+    Each sample i gets replaced by a random donor j != i.
+    If cross_cluster=True and groups provided, enforce groups[j] != groups[i].
+    """
+    N = XA.size(0)
+    rng = np.random.default_rng(seed)
+    XA_sw = XA.clone()
+    if (groups is None) or (not cross_cluster):
+        # simple random donor != self
+        idx = np.arange(N)
+        donors = rng.permutation(N)
+        # fix accidental self-matches
+        bad = donors == idx
+        donors[bad] = rng.permutation(np.where(bad)[0].size)
+        XA_sw = XA[torch.from_numpy(donors).long()]
+        return XA_sw
+
+    g = groups.cpu().numpy()
+    # build per-cluster pools
+    uniq = np.unique(g)
+    pools = {c: np.where(g != c)[0] for c in uniq}  # all indices not in c
+    donors = np.empty(N, dtype=np.int64)
+    for i in range(N):
+        cand = pools[g[i]]
+        # avoid self just in case (cand likely already excludes)
+        j = rng.choice(cand) if cand.size > 1 else int(i)
+        if j == i:
+            # fallback: pick any other index
+            j = (i + 1) % N
+        donors[i] = j
+    XA_sw = XA[torch.from_numpy(donors).long()]
+    return XA_sw
+
+
+
+
+
+# === NEW: build all swap variants for a given cluster mode ===
+
+SWAP_STRATEGIES = ["optimal", "round_robin", "random_clusters", "random_per_sample"]
+
+def build_swapped_variants(
+    dataset_name: str,
+    XA_train_clean: torch.Tensor,
+    Y_train: torch.Tensor,
+    mode: str = "pred",
+    pred_groups: Optional[torch.Tensor] = None,
+    pred_conf: Optional[torch.Tensor] = None,
+) -> Dict[str, Tuple[torch.Tensor, str]]:
+    """
+    Returns {strategy_name: (XA_swapped, note)} for the 4 strategies.
+    mode ∈ {"pred","gt"} decides which 'groups' to use for cluster-driven swaps.
+    If mode == "pred", uses the *aligned* pred_groups/pred_conf you pass in.
+    """
+    out = {}
+    mode = mode.lower()
+    assert mode in ("pred","gt")
+
+    if mode == "gt":
+        groups = Y_train.clone()
+        note_groups = "[INFO] Using GROUND-TRUTH label clusters."
+        have_pred = False
+    else:
+        if (pred_groups is None) or (pred_groups.numel() < len(Y_train)):
+            # fall back to GT if no predicted clusters were provided
+            groups = Y_train.clone()
+            note_groups = "[WARN] No predicted clusters; falling back to GT labels."
+            have_pred = False
+        else:
+            groups = pred_groups
+            note_groups = "[INFO] Using PREDICTED clusters (aligned)."
+            have_pred = True
+
+    # ---- 1) OPTIMAL ----
+    if have_pred:
+        try:
+            topk = _infer_topk_targets(dataset_name, XA_train_clean, groups, k=3)
+            XA_opt = generate_cluster_swapped_attack_topk(
+                XA_train_clean, groups, topk_map=topk,
+                conf=pred_conf, core_q=0.60, seed=SEED
+            )
+            out["optimal"] = (XA_opt, f"{note_groups} [optimal: top-k farthest + core]")
+        except Exception:
+            try:
+                perm = infer_and_maybe_save_perm(dataset_name, XA_train_clean, groups)
+                XA_opt = generate_cluster_swapped_attack_from_perm(XA_train_clean, groups, mapping=perm)
+                out["optimal"] = (XA_opt, f"{note_groups} [optimal: max-distance derangement]")
+            except Exception:
+                XA_opt = generate_cluster_swapped_attack(XA_train_clean, Y_train)
+                out["optimal"] = (XA_opt, f"{note_groups} [optimal: fallback label-pair swap]")
+    else:
+        # No predicted clusters: use GT-based derangement as "optimal"
+        try:
+            uniq_ids, _, D, _ = _cluster_distance_matrix(XA_train_clean, groups)
+            perm_idx = _solve_max_derangement(D)
+            mapping = [[int(uniq_ids[i]), int(uniq_ids[perm_idx[i]])] for i in range(len(uniq_ids))]
+            XA_opt = generate_cluster_swapped_attack_from_perm(XA_train_clean, groups, mapping=mapping)
+            out["optimal"] = (XA_opt, f"{note_groups} [optimal: max-distance derangement]")
+        except Exception:
+            XA_opt = generate_cluster_swapped_attack(XA_train_clean, Y_train)
+            out["optimal"] = (XA_opt, f"{note_groups} [optimal: fallback label-pair swap]")
+
+    # ---- 2) ROUND-ROBIN ----
+    XA_rr = generate_cluster_swapped_attack_round_robin(XA_train_clean, groups)
+    out["round_robin"] = (XA_rr, f"{note_groups} [round_robin: i→i+1]")
+
+    # ---- 3) RANDOM CLUSTERS ----
+    XA_rc = generate_cluster_swapped_attack_random_clusters(XA_train_clean, groups, seed=SEED)
+    out["random_clusters"] = (XA_rc, f"{note_groups} [random_clusters: random derangement]")
+
+    # ---- 4) RANDOM PER-SAMPLE ----
+    XA_rs = generate_random_per_sample_swap(XA_train_clean, groups=groups, seed=SEED, cross_cluster=True)
+    out["random_per_sample"] = (XA_rs, f"{note_groups} [random_per_sample: per-sample random, cross-cluster]")
+
+    return out
+
+
+
+
+# === NEW: pretty print a defense × strategy accuracy table ===
+
+def _defkey_to_title():
+    return {k: t for k,t in DEFENSE_ORDER}
+
+def print_strategy_table(caption: str, results: Dict[str, Dict[str, float]]):
+    """
+    results: mapping strategy -> {defense_key: acc}
+    """
+    keys = [k for k,_ in DEFENSE_ORDER]  # row order
+    titles = _defkey_to_title()
+    strategies = list(results.keys())
+    print(f"\n=== {caption} ===")
+    header = "Defense".ljust(34) + " ".join([s.center(18) for s in strategies])
+    print(header)
+    print("-"*len(header))
+    for dk in keys:
+        row = [f"{titles[dk]:<34}"]
+        for s in strategies:
+            acc = results[s].get(dk, float('nan')) * 100.0
+            row.append(f"{acc:>8.2f}%".rjust(18))
+        print("".join(row))
+
 # ====== UNLABELED PAIRING: farthest-first on A-view space ======
 # ====== UNLABELED ASSIGNMENT: max-distance derangement on A-view ======
 
@@ -239,11 +457,8 @@ def _cluster_centroids_and_D(XA: torch.Tensor, groups: torch.Tensor):
     return uniq, C, D, sizes
 
 def _infer_topk_targets(dataset_name: str, XA: torch.Tensor, groups: torch.Tensor, k: int = 3):
-    """
-    For each cluster, pick its k farthest destination clusters (excluding self).
-    Saves/loads ./clusters/<DATASET>_topk.json as {src_id: [dst_id,...]}.
-    """
-    path = os.path.join(CLUSTER_DIR, f"{dataset_name}_topk.json")
+    sig = _groups_signature(groups)
+    path = os.path.join(CLUSTER_DIR, f"{dataset_name}_{sig}_topk.json")
     if os.path.exists(path):
         try:
             with open(path, "r") as f:
@@ -253,7 +468,6 @@ def _infer_topk_targets(dataset_name: str, XA: torch.Tensor, groups: torch.Tenso
             pass
 
     uniq, _, D, _ = _cluster_centroids_and_D(XA, groups)
-    id_to_pos = {gid: i for i, gid in enumerate(uniq)}
     pos_to_id = {i: gid for i, gid in enumerate(uniq)}
 
     topk = {}
@@ -268,6 +482,7 @@ def _infer_topk_targets(dataset_name: str, XA: torch.Tensor, groups: torch.Tenso
     except Exception:
         pass
     return topk
+
 
 @torch.no_grad()
 def generate_cluster_swapped_attack_topk(
@@ -437,17 +652,11 @@ def _solve_max_derangement(D: np.ndarray) -> np.ndarray:
     except Exception:
         return _max_derangement_greedy(D)
 
-def infer_and_maybe_save_perm(
-    dataset_name: str,
-    XA_train_clean: torch.Tensor,
-    cluster_ids: torch.Tensor
-) -> List[List[int]]:
-    """
-    If ./clusters/<DATASET>_perm.json exists, load it.
-    Otherwise compute a max-distance derangement on cluster centroids,
-    save it, and return as [[src_id, dst_id], ...].
-    """
-    perm_path = os.path.join(CLUSTER_DIR, f"{dataset_name}_perm.json")
+def infer_and_maybe_save_perm(dataset_name: str,
+                              XA_train_clean: torch.Tensor,
+                              cluster_ids: torch.Tensor) -> List[List[int]]:
+    sig = _groups_signature(cluster_ids)
+    perm_path = os.path.join(CLUSTER_DIR, f"{dataset_name}_{sig}_perm.json")
     if os.path.exists(perm_path):
         try:
             with open(perm_path, "r") as f:
@@ -496,7 +705,29 @@ class ServerC(nn.Module):
 # ==============================
 
 
+# --- NEW: load full cluster info WITHOUT truncation; then align with `perm` ---
+def load_cluster_info_full(dataset_name: str):
+    dataset_name = dataset_name.upper()
+    ids_path = os.path.join(CLUSTER_DIR, f"{dataset_name}_ids.npy")
+    conf_path = os.path.join(CLUSTER_DIR, f"{dataset_name}_conf.npy")
+    pairs_path = os.path.join(CLUSTER_DIR, f"{dataset_name}_pairs.json")
+    if not os.path.exists(ids_path):
+        return None
+    ids_full = np.load(ids_path)  # full length (train+test in original ordering)
+    conf_full = np.load(conf_path) if os.path.exists(conf_path) else None
+    pairs = None
+    if os.path.exists(pairs_path):
+        with open(pairs_path, "r") as f:
+            pairs = json.load(f)
+    return {
+        "ids_full": torch.tensor(ids_full, dtype=torch.long),
+        "conf_full": (torch.tensor(conf_full, dtype=torch.float32) if conf_full is not None else None),
+        "pairs": pairs
+    }
+
+
 def load_cluster_info(dataset_name: str, n_needed: int):
+    dataset_name = dataset_name.upper()
     ids_path = os.path.join(CLUSTER_DIR, f"{dataset_name}_ids.npy")
     conf_path = os.path.join(CLUSTER_DIR, f"{dataset_name}_conf.npy")
     pairs_path = os.path.join(CLUSTER_DIR, f"{dataset_name}_pairs.json")
@@ -1113,60 +1344,175 @@ DEFENSE_ORDER = [
 #             print(f"[ATTACK | {title}] Acc: {acc*100:.2f}% | accepted={stats['accepted']} flagged={stats['flagged']} total={stats['total']} | detect-rate={ (stats['flagged']/max(1,stats['total']))*100:.1f}%")
 
 
+
+
+
+
+# for dataset_name in DATASETS:
+#     print("=====================================================")
+#     print(f"Dataset: {dataset_name}")
+#     (XA_tr_full, XB_tr_full, Y_tr_full), (XA_te_full, XB_te_full, Y_te_full) = load_dataset(dataset_map[dataset_name])
+
+#     # Build a dynamic 85/15 split based on the combined dataset length (train+test)
+#     # 1) concatenate all samples
+#     XA_all = torch.cat([XA_tr_full, XA_te_full], dim=0)
+#     XB_all = torch.cat([XB_tr_full, XB_te_full], dim=0)
+#     Y_all  = torch.cat([Y_tr_full,  Y_te_full],  dim=0)
+
+#     N = len(Y_all)
+#     # 2) determine split sizes
+#     n_train = int(round(FRACTION_TRAIN * N))
+#     n_train = max(1, min(n_train, N - 1))  # ensure at least 1 test and 1 train
+#     n_test = N - n_train
+
+#     # 3) reproducible shuffle and split
+#     g = torch.Generator()
+#     g.manual_seed(SEED)
+#     perm = torch.randperm(N, generator=g)
+#     XA_all = XA_all[perm]
+#     XB_all = XB_all[perm]
+#     Y_all  = Y_all[perm]
+
+#     XA_train_clean, XB_train, Y_train = XA_all[:n_train], XB_all[:n_train], Y_all[:n_train]
+#     XA_test,        XB_test,  Y_test  = XA_all[n_train:], XB_all[n_train:], Y_all[n_train:]
+
+#     # Clean (no attack, no defense)
+#     cleanA, cleanB, cleanC, _ = train_once(XA_train_clean, XB_train, Y_train, defense_name="none", epochs=EPOCHS)
+#     acc_clean = evaluate(cleanA, cleanB, cleanC, XA_test, XB_test, Y_test)
+#     print(f"[CLEAN] Accuracy: {acc_clean*100:.2f}%")
+
+#     # ---------- Build swapped-A for both modes ----------
+#     XA_sw_pred, note_pred = make_swapped_XA(dataset_name, XA_train_clean, Y_train, mode="pred")
+#     XA_sw_gt,   note_gt   = make_swapped_XA(dataset_name, XA_train_clean, Y_train, mode="gt")
+#     print(note_pred)
+#     print(note_gt)
+
+#     # Keep previous behavior: use predicted clusters if available, otherwise GT
+#     use_pred = ("using predicted clusters" in note_pred.lower())
+#     XA_swapped = XA_sw_pred if use_pred else XA_sw_gt
+
+#     # ---------- ORIGINAL PER-DEFENSE LOOP (unchanged behavior) ----------
+#     for key, title in DEFENSE_ORDER:
+#         if key == "none":
+#             # Attack, no defense
+#             atkA, atkB, atkC, stats = train_once(XA_swapped, XB_train, Y_train, defense_name="none", epochs=EPOCHS)
+#             acc = evaluate(atkA, atkB, atkC, XA_test, XB_test, Y_test)
+#             print(f"[ATTACK | {title}] Acc: {acc*100:.2f}% | accepted={stats['accepted']} flagged={stats['flagged']} total={stats['total']} | detect-rate={(stats['flagged']/max(1,stats['total']))*100:.1f}%")
+
+#         elif key == "cosine_ema":
+#             cos_def = CosineEMADefense(COS_EMA_THRESH, COS_EMA_BUF)
+#             steA, steB, steC, stats = train_cosine_ema_stealth(XA_swapped, XB_train, Y_train, epochs=EPOCHS, defense=cos_def)
+#             acc = evaluate(steA, steB, steC, XA_test, XB_test, Y_test)
+#             rate = (stats['flagged']/max(1,stats['total']))*100
+#             print(f"[ATTACK | Temporal Cosine-EMA Gate | STEALTH] Acc: {acc*100:.2f}% | accepted={stats['accepted']} flagged={stats['flagged']} total={stats['total']} | detect-rate={rate:.1f}%")
+
+#         else:
+#             defA, defB, defC, stats = train_once(XA_swapped, XB_train, Y_train, defense_name=key, epochs=EPOCHS)
+#             acc = evaluate(defA, defB, defC, XA_test, XB_test, Y_test)
+#             print(f"[ATTACK | {title}] Acc: {acc*100:.2f}% | accepted={stats['accepted']} flagged={stats['flagged']} total={stats['total']} | detect-rate={(stats['flagged']/max(1,stats['total']))*100:.1f}%")
+
+#     # ---------- NEW: side-by-side comparison (Predicted vs Ground Truth) ----------
+#     print("\n[ATTACK] Running defense suite with PREDICTED clusters...")
+#     res_pred = run_defense_suite_once(dataset_name, XA_sw_pred, XB_train, Y_train, XA_test, XB_test, Y_test, EPOCHS, SEED)
+
+#     print("[ATTACK] Running defense suite with GROUND-TRUTH clusters...")
+#     res_gt = run_defense_suite_once(dataset_name, XA_sw_gt, XB_train, Y_train, XA_test, XB_test, Y_test, EPOCHS, SEED)
+
+#     print("\n=== Accuracy by defense (Predicted vs Ground Truth clusters) ===")
+#     for key, title in DEFENSE_ORDER:
+#         ap = res_pred[key] * 100.0
+#         ag = res_gt[key]   * 100.0
+#         diff = ap - ag
+#         print(f"{title:<32s}  pred={ap:6.2f}%   gt={ag:6.2f}%   Δ={diff:+6.2f}%")
+#     print()  # spacer
+
+
+
+# ==============================
+# MAIN EXPERIMENT (updated)
+# ==============================
 for dataset_name in DATASETS:
     print("=====================================================")
     print(f"Dataset: {dataset_name}")
     (XA_tr_full, XB_tr_full, Y_tr_full), (XA_te_full, XB_te_full, Y_te_full) = load_dataset(dataset_map[dataset_name])
 
-    XA_train_clean, XB_train, Y_train = XA_tr_full[:TRAIN_SAMPLES], XB_tr_full[:TRAIN_SAMPLES], Y_tr_full[:TRAIN_SAMPLES]
-    XA_test,        XB_test,  Y_test  = XA_te_full[:TEST_SAMPLES],  XB_te_full[:TEST_SAMPLES],  Y_te_full[:TEST_SAMPLES]
+    # unified 85/15 split (your current logic)
+    XA_all = torch.cat([XA_tr_full, XA_te_full], dim=0)
+    XB_all = torch.cat([XB_tr_full, XB_te_full], dim=0)
+    Y_all  = torch.cat([Y_tr_full,  Y_te_full],  dim=0)
 
-    # Clean (no attack, no defense)
+    N = len(Y_all)
+    n_train = int(round(FRACTION_TRAIN * N))
+    n_train = max(1, min(n_train, N - 1))
+
+
+    cluster_full = load_cluster_info_full(dataset_name) if USE_CLUSTERING else None
+    ids_all = None
+    conf_all = None
+    if cluster_full is not None:
+        ids_full = cluster_full["ids_full"]            # length == 60000 (MNIST train)
+        conf_full = cluster_full["conf_full"]          # optional, length == 60000
+
+        # Build length-N containers (train part filled, test part marked as missing)
+        ids_all = torch.full((N,), -1, dtype=torch.long)                     # -1 marks "no pred cluster"
+        ids_all[:len(ids_full)] = ids_full
+
+        if conf_full is not None:
+            conf_all = torch.full((N,), float("nan"), dtype=torch.float32)   # NaN marks "no confidence"
+            conf_all[:len(conf_full)] = conf_full
+
+
+
+    g = torch.Generator(); g.manual_seed(SEED)
+    perm = torch.randperm(N, generator=g)
+    XA_all = XA_all[perm]; XB_all = XB_all[perm]; Y_all = Y_all[perm]
+
+
+
+        # --- NEW: apply SAME perm to predicted clusters, then slice to train ---
+    pred_groups_train = None
+    pred_conf_train = None
+    if ids_all is not None:
+        ids_all = ids_all[perm]
+        # slice first, then repair missing entries with GT labels
+        pred_groups_train = ids_all[:n_train].clone()
+        # replace -1 (no predicted cluster) with the ground-truth label of that sample
+        missing_mask = (pred_groups_train < 0)
+        if missing_mask.any():
+            pred_groups_train[missing_mask] = Y_all[:n_train][missing_mask]
+
+        if conf_all is not None:
+            conf_all = conf_all[perm]
+            pred_conf_train = conf_all[:n_train].clone()
+
+
+    XA_train_clean, XB_train, Y_train = XA_all[:n_train], XB_all[:n_train], Y_all[:n_train]
+    XA_test,        XB_test,  Y_test  = XA_all[n_train:], XB_all[n_train:], Y_all[n_train:]
+
+    # Clean baseline
     cleanA, cleanB, cleanC, _ = train_once(XA_train_clean, XB_train, Y_train, defense_name="none", epochs=EPOCHS)
     acc_clean = evaluate(cleanA, cleanB, cleanC, XA_test, XB_test, Y_test)
     print(f"[CLEAN] Accuracy: {acc_clean*100:.2f}%")
 
-    # ---------- Build swapped-A for both modes ----------
-    XA_sw_pred, note_pred = make_swapped_XA(dataset_name, XA_train_clean, Y_train, mode="pred")
-    XA_sw_gt,   note_gt   = make_swapped_XA(dataset_name, XA_train_clean, Y_train, mode="gt")
-    print(note_pred)
-    print(note_gt)
+    # For each cluster mode ("pred" then "gt"), build the 4 variants and evaluate
+    for mode in ["pred", "gt"]:
+        variants = build_swapped_variants(
+            dataset_name,
+            XA_train_clean, Y_train,
+            mode=mode,
+            pred_groups=pred_groups_train,
+            pred_conf=pred_conf_train
+        )
+        print(f"\n[ATTACK] Evaluating swap strategies with mode={mode.upper()} ...")
+        results = {}
+        for strat_name, (XA_swapped, note) in variants.items():
+            print(f"  • {strat_name}: {note}")
+            acc_by_def = run_defense_suite_once(
+                dataset_name, XA_swapped, XB_train, Y_train, XA_test, XB_test, Y_test, EPOCHS, SEED
+            )
+            results[strat_name] = acc_by_def
 
-    # Keep previous behavior: use predicted clusters if available, otherwise GT
-    use_pred = ("using predicted clusters" in note_pred.lower())
-    XA_swapped = XA_sw_pred if use_pred else XA_sw_gt
+        title = f"{dataset_name} | Cluster mode = {mode.upper()} | Accuracy by defense (higher is better)"
+        print_strategy_table(title, results)
 
-    # ---------- ORIGINAL PER-DEFENSE LOOP (unchanged behavior) ----------
-    for key, title in DEFENSE_ORDER:
-        if key == "none":
-            # Attack, no defense
-            atkA, atkB, atkC, stats = train_once(XA_swapped, XB_train, Y_train, defense_name="none", epochs=EPOCHS)
-            acc = evaluate(atkA, atkB, atkC, XA_test, XB_test, Y_test)
-            print(f"[ATTACK | {title}] Acc: {acc*100:.2f}% | accepted={stats['accepted']} flagged={stats['flagged']} total={stats['total']} | detect-rate={(stats['flagged']/max(1,stats['total']))*100:.1f}%")
-
-        elif key == "cosine_ema":
-            cos_def = CosineEMADefense(COS_EMA_THRESH, COS_EMA_BUF)
-            steA, steB, steC, stats = train_cosine_ema_stealth(XA_swapped, XB_train, Y_train, epochs=EPOCHS, defense=cos_def)
-            acc = evaluate(steA, steB, steC, XA_test, XB_test, Y_test)
-            rate = (stats['flagged']/max(1,stats['total']))*100
-            print(f"[ATTACK | Temporal Cosine-EMA Gate | STEALTH] Acc: {acc*100:.2f}% | accepted={stats['accepted']} flagged={stats['flagged']} total={stats['total']} | detect-rate={rate:.1f}%")
-
-        else:
-            defA, defB, defC, stats = train_once(XA_swapped, XB_train, Y_train, defense_name=key, epochs=EPOCHS)
-            acc = evaluate(defA, defB, defC, XA_test, XB_test, Y_test)
-            print(f"[ATTACK | {title}] Acc: {acc*100:.2f}% | accepted={stats['accepted']} flagged={stats['flagged']} total={stats['total']} | detect-rate={(stats['flagged']/max(1,stats['total']))*100:.1f}%")
-
-    # ---------- NEW: side-by-side comparison (Predicted vs Ground Truth) ----------
-    print("\n[ATTACK] Running defense suite with PREDICTED clusters...")
-    res_pred = run_defense_suite_once(dataset_name, XA_sw_pred, XB_train, Y_train, XA_test, XB_test, Y_test, EPOCHS, SEED)
-
-    print("[ATTACK] Running defense suite with GROUND-TRUTH clusters...")
-    res_gt = run_defense_suite_once(dataset_name, XA_sw_gt, XB_train, Y_train, XA_test, XB_test, Y_test, EPOCHS, SEED)
-
-    print("\n=== Accuracy by defense (Predicted vs Ground Truth clusters) ===")
-    for key, title in DEFENSE_ORDER:
-        ap = res_pred[key] * 100.0
-        ag = res_gt[key]   * 100.0
-        diff = ap - ag
-        print(f"{title:<32s}  pred={ap:6.2f}%   gt={ag:6.2f}%   Δ={diff:+6.2f}%")
     print()  # spacer

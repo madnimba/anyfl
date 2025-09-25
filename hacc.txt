@@ -1,0 +1,159 @@
+Dataset: CIFAR10  N=50000
+Unique labels=10 -> [np.int64(0), np.int64(1), np.int64(2), np.int64(3), np.int64(4), np.int64(5), np.int64(6), np.int64(7), np.int64(8), np.int64(9)]
+Unique clusters=10 -> [np.int64(0), np.int64(1), np.int64(2), np.int64(3), np.int64(4), np.int64(5), np.int64(6), np.int64(7), np.int64(8), np.int64(9)]
+ACC (Hungarian): 0.7673  | NMI: 0.5999  | ARI: 0.5737
+
+Cluster sizes:
+  cluster   0: n=4988
+  cluster   1: n=4962
+  cluster   2: n=4678
+  cluster   3: n=4565
+  cluster   4: n=5149
+  cluster   5: n=4796
+  cluster   6: n=5620
+  cluster   7: n=4968
+  cluster   8: n=5110
+  cluster   9: n=5164
+
+Best cluster -> label mapping:
+  cluster   0 -> label   0  count=4102
+  cluster   1 -> label   1  count=4508
+  cluster   2 -> label   2  count=3169
+  cluster   3 -> label   3  count=2751
+  cluster   4 -> label   4  count=3641
+  cluster   5 -> label   5  count=3128
+  cluster   6 -> label   6  count=4138
+  cluster   7 -> label   7  count=4029
+  cluster   8 -> label   8  count=4464
+  cluster   9 -> label   9  count=4437
+
+
+
+
+
+
+Dataset: MNIST  N=60000
+Unique labels=10 -> [np.int64(0), np.int64(1), np.int64(2), np.int64(3), np.int64(4), np.int64(5), np.int64(6), np.int64(7), np.int64(8), np.int64(9)]
+Unique clusters=10 -> [np.int64(0), np.int64(1), np.int64(2), np.int64(3), np.int64(4), np.int64(5), np.int64(6), np.int64(7), np.int64(8), np.int64(9)]
+ACC (Hungarian): 0.8655  | NMI: 0.7747  | ARI: 0.7307
+
+Cluster sizes:
+  cluster   0: n=7193
+  cluster   1: n=6181
+  cluster   2: n=7400
+  cluster   3: n=6592
+  cluster   4: n=4681
+  cluster   5: n=4985
+  cluster   6: n=4562
+  cluster   7: n=5344
+  cluster   8: n=5605
+  cluster   9: n=7457
+
+Best cluster -> label mapping:
+  cluster   0 -> label   0  count=5599
+  cluster   1 -> label   1  count=6094
+  cluster   2 -> label   2  count=5473
+  cluster   3 -> label   3  count=5505
+  cluster   4 -> label   4  count=4411
+  cluster   5 -> label   5  count=4558
+  cluster   6 -> label   6  count=4297
+  cluster   7 -> label   7  count=5208
+  cluster   8 -> label   8  count=5249
+  cluster   9 -> label   9  count=5536
+
+
+
+
+
+
+  Dataset: FASHIONMNIST  N=60000
+Unique labels=10 -> [np.int64(0), np.int64(1), np.int64(2), np.int64(3), np.int64(4), np.int64(5), np.int64(6), np.int64(7), np.int64(8), np.int64(9)]
+Unique clusters=10 -> [np.int64(0), np.int64(1), np.int64(2), np.int64(3), np.int64(4), np.int64(5), np.int64(6), np.int64(7), np.int64(8), np.int64(9)]
+ACC (Hungarian): 0.7222  | NMI: 0.6745  | ARI: 0.5686
+
+Cluster sizes:
+  cluster   0: n=6523
+  cluster   1: n=5945
+  cluster   2: n=7360
+  cluster   3: n=7613
+  cluster   4: n=5301
+  cluster   5: n=7498
+  cluster   6: n=4117
+  cluster   7: n=3984
+  cluster   8: n=5201
+  cluster   9: n=6458
+
+Best cluster -> label mapping:
+  cluster   0 -> label   0  count=4768
+  cluster   1 -> label   1  count=5672
+  cluster   2 -> label   2  count=3810
+  cluster   3 -> label   3  count=4869
+  cluster   4 -> label   4  count=2978
+  cluster   5 -> label   5  count=5802
+  cluster   6 -> label   6  count=958
+  cluster   7 -> label   7  count=3841
+  cluster   8 -> label   8  count=5145
+  cluster   9 -> label   9  count=5487
+
+
+
+
+
+
+
+  Dataset: MUSHROOM  N=8124
+Unique labels=2 -> [np.int64(0), np.int64(1)]
+Unique clusters=2 -> [np.int64(0), np.int64(1)]
+ACC (Hungarian): 0.9734  | NMI: 0.8231  | ARI: 0.8965
+
+Cluster sizes:
+  cluster   0: n=3892
+  cluster   1: n=4232
+
+Best cluster -> label mapping:
+  cluster   0 -> label   1  count=3796
+  cluster   1 -> label   0  count=4112
+
+
+
+
+
+
+
+
+Dataset: BANK  N=45211
+Unique labels=2 -> [np.int64(0), np.int64(1)]
+Unique clusters=2 -> [np.int64(0), np.int64(1)]
+ACC (Hungarian): 0.8929  | NMI: 0.1097  | ARI: 0.2175
+
+Cluster sizes:
+  cluster   0: n=43700
+  cluster   1: n=1511
+
+Best cluster -> label mapping:
+  cluster   0 -> label   0  count=39389
+  cluster   1 -> label   1  count=978
+
+
+
+
+Dataset: HAR  N=10299
+Unique labels=6 -> [np.int64(0), np.int64(1), np.int64(2), np.int64(3), np.int64(4), np.int64(5)]
+Unique clusters=6 -> [np.int64(0), np.int64(1), np.int64(2), np.int64(3), np.int64(4), np.int64(5)]
+ACC (Hungarian): 0.8712  | NMI: 0.7707  | ARI: 0.7355
+
+Cluster sizes:
+  cluster   0: n=1925
+  cluster   1: n=1722
+  cluster   2: n=1951
+  cluster   3: n=1353
+  cluster   4: n=1742
+  cluster   5: n=1606
+
+Best cluster -> label mapping:
+  cluster   0 -> label   5  count=1870
+  cluster   1 -> label   3  count=1333
+  cluster   2 -> label   4  count=1514
+  cluster   3 -> label   2  count=1284
+  cluster   4 -> label   1  count=1452
+  cluster   5 -> label   0  count=1520

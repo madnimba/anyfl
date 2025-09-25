@@ -1,12 +1,12 @@
 # run_har_clustering.py
-# UCI HAR (Human Activity Recognition) left-half-only clustering (MI/mRMR → KMeans/GMM), VFL-style.
+# UCI HAR (Human Activity Recognition) left-half-only clustering (MI/mRMR → PCA → KMeans/GMM), VFL-style.
+# EXACTLY your previous pipeline; ONLY the loader is changed to match attack row order.
 
 import argparse, os, warnings
 import numpy as np
 import pandas as pd
 from collections import Counter
 
-from sklearn.datasets import fetch_openml
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.feature_selection import mutual_info_classif
@@ -14,6 +14,9 @@ from sklearn.metrics import normalized_mutual_info_score as NMI
 from sklearn.metrics import adjusted_rand_score as ARI
 from sklearn.cluster import KMeans
 from sklearn.mixture import GaussianMixture
+
+# ---- use the SAME loader the attack uses ----
+from datasets import get_dataset  # ensures identical sample order to attack
 
 # ---------------- Args ----------------
 p = argparse.ArgumentParser()
@@ -35,35 +38,14 @@ p.add_argument("--cov_type", choices=["diag","full","tied","spherical"],
 args = p.parse_args()
 np.random.seed(args.seed)
 
-# ---------------- Load HAR ----------------
-def fetch_har():
-    """
-    Robust loader for UCI HAR via OpenML.
-    Tries several names/ids; returns numeric X_df (561 columns) and y (0..C-1).
-    """
-    tries = [
-        dict(name="har", version=1),
-        dict(data_id=1478),  # common ID for HAR (561 feats)
-        dict(name="Human Activity Recognition Using Smartphones"),
-        dict(name="UCI HAR Dataset"),
-    ]
-    last_err = None
-    for kw in tries:
-        try:
-            X_df, y_ser = fetch_openml(as_frame=True, return_X_y=True, **kw)
-            y_vals, y_uniques = pd.factorize(y_ser.astype(str), sort=True)
-            print(f"[Data] Source: {kw}  | Rows={len(X_df):,} Cols={X_df.shape[1]}  | Classes={len(y_uniques)}")
-            return X_df, y_vals.astype(np.int64), [str(u) for u in y_uniques]
-        except Exception as e:
-            last_err = e
-            continue
-    raise RuntimeError(f"Could not fetch UCI HAR from OpenML. Last error: {last_err}")
-
-print("[Data] Fetching UCI HAR from OpenML...")
-X_df, y, label_names = fetch_har()
+# ---------------- Load HAR (aligned row order) ----------------
+print("[Data] Loading HAR via datasets.get_dataset('HAR') …")
+X_np, y_np = get_dataset("HAR")          # SAME order as attack
+X_df = pd.DataFrame(X_np)                # keep your old code style below
+y = np.asarray(y_np, dtype=np.int64)
 N, D_raw = X_df.shape
 
-# Ensure all-features numeric (OpenML HAR is numeric already; coerce as guard)
+# Ensure all-features numeric (guard)
 for c in X_df.columns:
     if not np.issubdtype(X_df[c].dtype, np.number):
         X_df[c] = pd.to_numeric(X_df[c], errors="coerce").fillna(0.0)
@@ -99,11 +81,9 @@ def mrmr_select_in_pool_numeric(X, y, pool_idx, k, alpha=0.4):
             red = 0.0
             if selected:
                 xf = X[:, f]
-                # mean absolute correlation to selected
                 cors = []
                 for g in selected:
                     xg = X[:, g]
-                    # fast, stable corr
                     c = np.corrcoef(xf, xg)[0,1]
                     if np.isnan(c): c = 0.0
                     cors.append(abs(c))
@@ -114,7 +94,9 @@ def mrmr_select_in_pool_numeric(X, y, pool_idx, k, alpha=0.4):
         selected.append(best); chosen.add(best)
     return np.array(selected, dtype=int), mi_local
 
-# 1) Rank by MI; 2) define LEFT pool = top D//2; 3) pick keep_top from that pool
+# 1) Rank by MI over FULL X
+# 2) define LEFT pool = top D//2 by MI (your original “left-half” rule)
+# 3) pick keep_top from that pool
 order_all, mi_all = mi_rank_numeric(X, y)
 left_pool = order_all[: D // 2]
 
@@ -158,31 +140,25 @@ def run_kmeans(Xv):
     C_big   = C_big / (np.linalg.norm(C_big, axis=1, keepdims=True) + 1e-12)
 
     if k_big == C_final:
-        # confidence: margin between top-1 and top-2 cosine sims
         sim = Xcos @ C_big.T
         top2 = np.partition(sim, -2, axis=1)[:, -2:]
         conf = (top2[:, 1] - top2[:, 0])
         conf = (conf - conf.min()) / (conf.max() - conf.min() + 1e-12)
         return ids_big, conf
 
-    # merge centers: cluster C_big -> C_final groups (cosine geometry)
     km_merge = KMeans(n_clusters=C_final, n_init=100, random_state=args.seed)
-    labs_merge = km_merge.fit_predict(C_big)  # label for each of the big centers
-
-    # map each sample to merged label via its big-center label
+    labs_merge = km_merge.fit_predict(C_big)
     ids_merged = labs_merge[ids_big]
 
-    # recompute merged centers directly from data (one recenter step)
+    # recenter
     C_merge = []
     for c in range(C_final):
         idx = np.where(ids_merged == c)[0]
         if len(idx) == 0:
-            # fallback: pick the largest big-center in this group
             members = np.where(labs_merge == c)[0]
             if len(members) == 0:
                 C_merge.append(np.zeros((Xcos.shape[1],), dtype=Xcos.dtype))
             else:
-                # use that big center
                 C_merge.append(C_big[members[0]])
         else:
             mu = Xcos[idx].mean(axis=0)
@@ -190,7 +166,6 @@ def run_kmeans(Xv):
             C_merge.append(mu)
     C_merge = np.stack(C_merge, axis=0)
 
-    # final assignment with merged centers
     sim = Xcos @ C_merge.T
     ids = sim.argmax(axis=1)
     top2 = np.partition(sim, -2, axis=1)[:, -2:]
@@ -199,77 +174,42 @@ def run_kmeans(Xv):
     return ids, conf
 
 def fit_gmm_best(Xv, K, restarts=10, cov_type="diag", reg=1e-5, seed=42):
-    # Use float64 for numerical stability
     X64 = np.asarray(Xv, dtype=np.float64)
     best, best_ll = None, -np.inf
-
-    # Try a small ladder of reg_covar; catch singular covariances
     reg_ladder = (reg, 1e-4, 1e-3, 1e-2)
     for r in range(restarts):
         for reg_try in reg_ladder:
             try:
                 gmm = GaussianMixture(
-                    n_components=K,
-                    covariance_type=cov_type,
-                    reg_covar=reg_try,
-                    random_state=seed + r,
-                    init_params="kmeans",
-                    max_iter=500,
+                    n_components=K, covariance_type=cov_type, reg_covar=reg_try,
+                    random_state=seed + r, init_params="kmeans", max_iter=500,
                 )
                 gmm.fit(X64)
-                ll = gmm.score(X64)  # avg log-likelihood
+                ll = gmm.score(X64)
                 if ll > best_ll:
                     best_ll, best = ll, gmm
-                break  # this restart succeeded; move to next restart
+                break
             except ValueError:
-                # ill-defined covariance, try a bigger reg
                 continue
-
-    # Final safety: if nothing worked with the requested cov_type, fall back
     if best is None:
         for cov_try in ("tied", "diag"):
             try:
                 gmm = GaussianMixture(
-                    n_components=K,
-                    covariance_type=cov_try,
-                    reg_covar=1e-3,
-                    random_state=seed,
-                    init_params="kmeans",
-                    max_iter=500,
+                    n_components=K, covariance_type=cov_try, reg_covar=1e-3,
+                    random_state=seed, init_params="kmeans", max_iter=500,
                 ).fit(X64)
                 best = gmm
                 break
             except ValueError:
                 continue
         if best is None:
-            # As a last resort, reduce K to classes and use diag
             gmm = GaussianMixture(
-                n_components=max( int(args.n_classes), 6 ),
-                covariance_type="diag",
-                reg_covar=1e-3,
-                random_state=seed,
-                init_params="kmeans",
-                max_iter=500,
+                n_components=max(int(args.n_classes), 6),
+                covariance_type="diag", reg_covar=1e-3,
+                random_state=seed, init_params="kmeans", max_iter=500,
             ).fit(X64)
             best = gmm
     return best
-
-def run_gmm(Xv):
-    K_fit = max(int(args.n_classes), int(args.overspec))
-    gmm = fit_gmm_best(
-        Xv, K=K_fit, restarts=args.restarts,
-        cov_type=args.cov_type, reg=1e-5, seed=args.seed
-    )
-    return gmm_merge_to_C(gmm, Xv, int(args.n_classes))
-
-
-# def run_gmm(Xv):
-#     K_fit = max(int(args.n_classes), int(args.overspec))
-#     gmm = fit_gmm_best(
-#         Xv, K=K_fit, restarts=args.restarts,
-#         cov_type=args.cov_type, reg=1e-5, seed=args.seed
-#     )
-#     return gmm_merge_to_C(gmm, Xv, int(args.n_classes))
 
 def gmm_merge_to_C(gmm, Xv, C):
     K = gmm.weights_.shape[0]
@@ -278,7 +218,6 @@ def gmm_merge_to_C(gmm, Xv, C):
         ids = Pk.argmax(axis=1)
         conf= Pk.max(axis=1)
         return ids, conf
-    # merge components: cluster means to C groups (cosine on means)
     M = gmm.means_.copy()
     M = M / (np.linalg.norm(M, axis=1, keepdims=True) + 1e-12)
     lab = KMeans(n_clusters=C, n_init=50, random_state=0).fit_predict(M)
@@ -291,11 +230,13 @@ def gmm_merge_to_C(gmm, Xv, C):
     conf= PC.max(axis=1)
     return ids, conf
 
-# def run_gmm(Xv):
-#     K_fit = max(C, int(args.overspec))
-#     gmm = fit_gmm_best(Xv, K=K_fit, restarts=args.restarts, cov_type="diag", reg=1e-5, seed=args.seed)
-#     ids, conf = gmm_merge_to_C(gmm, Xv, C)
-#     return ids, conf
+def run_gmm(Xv):
+    K_fit = max(int(args.n_classes), int(args.overspec))
+    gmm = fit_gmm_best(
+        Xv, K=K_fit, restarts=args.restarts,
+        cov_type=args.cov_type, reg=1e-5, seed=args.seed
+    )
+    return gmm_merge_to_C(gmm, Xv, int(args.n_classes))
 
 # ---------------- Auto-select ----------------
 if args.method == "kmeans":
@@ -317,6 +258,7 @@ else:
 # ---------------- Report + Save ----------------
 pur = purity(y, ids); nmi=NMI(y,ids); ari=ARI(y,ids)
 print(f"\nHAR_L | K={C} | Pur:{pur:.4f}  NMI:{nmi:.4f}  ARI:{ari:.4f}")
+
 for c in range(C):
     idx = np.where(ids==c)[0]
     if len(idx)==0:

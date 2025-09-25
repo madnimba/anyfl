@@ -1,0 +1,501 @@
+===== Results for run_20ng_clustering =====
+
+Command: python3 /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/run_20ng_clustering.py
+
+[Data] Fetching 20 Newsgroups (train+test, remove headers/footers/quotes)...
+[Data] Total docs: 18846  classes: 20
+[TFIDF] Shape: (18846, 20000)  (sparse CSR)
+[Split] Using left-half features: 10000 dims
+[SimCLR-text] 001/20  NT-Xent: 2.4225
+[SimCLR-text] 002/20  NT-Xent: 2.0937
+[SimCLR-text] 003/20  NT-Xent: 2.0368
+[SimCLR-text] 004/20  NT-Xent: 2.0098
+[SimCLR-text] 005/20  NT-Xent: 1.9829
+[SimCLR-text] 006/20  NT-Xent: 1.9624
+[SimCLR-text] 007/20  NT-Xent: 1.9456
+[SimCLR-text] 008/20  NT-Xent: 1.9380
+[SimCLR-text] 009/20  NT-Xent: 1.9256
+[SimCLR-text] 010/20  NT-Xent: 1.9156
+[SimCLR-text] 011/20  NT-Xent: 1.9043
+[SimCLR-text] 012/20  NT-Xent: 1.8905
+[SimCLR-text] 013/20  NT-Xent: 1.8879
+[SimCLR-text] 014/20  NT-Xent: 1.8766
+[SimCLR-text] 015/20  NT-Xent: 1.8747
+[SimCLR-text] 016/20  NT-Xent: 1.8703
+[SimCLR-text] 017/20  NT-Xent: 1.8672
+[SimCLR-text] 018/20  NT-Xent: 1.8653
+[SimCLR-text] 019/20  NT-Xent: 1.8649
+[SimCLR-text] 020/20  NT-Xent: 1.8622
+[SupCon] Epoch 01/10  Loss: 5.1408
+[SupCon] Epoch 02/10  Loss: 4.8557
+[SupCon] Epoch 03/10  Loss: 4.5390
+[SupCon] Epoch 04/10  Loss: 4.2140
+[SupCon] Epoch 05/10  Loss: 3.9567
+[SupCon] Epoch 06/10  Loss: 3.7176
+[SupCon] Epoch 07/10  Loss: 3.4762
+[SupCon] Epoch 08/10  Loss: 3.3748
+[SupCon] Epoch 09/10  Loss: 3.2383
+[SupCon] Epoch 10/10  Loss: 3.2540
+
+SIMCSE_L | gmm20 | Pur:0.3950 NMI:0.3865 ARI:0.2071
+
+Cluster → majority label after GMM(K):
+  Cluster  0 -> label 17 (191/246)
+  Cluster  1 -> label 14 (16/16)
+  Cluster  2 -> label 16 (514/888)
+  Cluster  3 -> label 6 (512/1392)
+  Cluster  4 -> label 12 (485/1726)
+  Cluster  5 -> label 0 (8/9)
+  Cluster  6 -> label 11 (597/688)
+  Cluster  7 -> label 9 (592/771)
+  Cluster  8 -> label 7 (556/1284)
+  Cluster  9 -> label 14 (509/1004)
+  Cluster 10 -> label 16 (13/14)
+  Cluster 11 -> label 15 (670/1345)
+  Cluster 12 -> label 12 (219/3340)
+  Cluster 13 -> label 7 (68/804)
+  Cluster 14 -> label 18 (224/960)
+  Cluster 15 -> label 8 (2/12)
+  Cluster 16 -> label 17 (449/838)
+  Cluster 17 -> label 5 (526/1881)
+  Cluster 18 -> label 10 (694/796)
+  Cluster 19 -> label 13 (600/832)
+
+=== After GMM (K comps) ===
+  C 0 | n=  246 | purity=0.776 | maj=17 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C 1 | n=   16 | purity=1.000 | maj=14 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C 2 | n=  888 | purity=0.579 | maj=16 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C 3 | n= 1392 | purity=0.368 | maj=6 | conf μ=0.999  q25/50/75=(1.000/1.000/1.000)
+  C 4 | n= 1726 | purity=0.281 | maj=12 | conf μ=0.999  q25/50/75=(1.000/1.000/1.000)
+  C 5 | n=    9 | purity=0.889 | maj=0 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C 6 | n=  688 | purity=0.868 | maj=11 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C 7 | n=  771 | purity=0.768 | maj=9 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C 8 | n= 1284 | purity=0.433 | maj=7 | conf μ=0.999  q25/50/75=(1.000/1.000/1.000)
+  C 9 | n= 1004 | purity=0.507 | maj=14 | conf μ=0.999  q25/50/75=(1.000/1.000/1.000)
+  C10 | n=   14 | purity=0.929 | maj=16 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C11 | n= 1345 | purity=0.498 | maj=15 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C12 | n= 3340 | purity=0.066 | maj=12 | conf μ=0.999  q25/50/75=(1.000/1.000/1.000)
+  C13 | n=  804 | purity=0.085 | maj=7 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C14 | n=  960 | purity=0.233 | maj=18 | conf μ=0.998  q25/50/75=(1.000/1.000/1.000)
+  C15 | n=   12 | purity=0.167 | maj=8 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C16 | n=  838 | purity=0.536 | maj=17 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C17 | n= 1881 | purity=0.280 | maj=5 | conf μ=0.999  q25/50/75=(1.000/1.000/1.000)
+  C18 | n=  796 | purity=0.872 | maj=10 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C19 | n=  832 | purity=0.721 | maj=13 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+[Select] KMeans (lab purity 0.765) > GMM (0.592) — using KMeans labels
+
+Confused clusters: [0, 1, 3, 8, 16, 17, 18]
+[SupCon-v2] Epoch 01/10  Loss: 6.9400
+[SupCon-v2] Epoch 02/10  Loss: 6.1547
+[SupCon-v2] Epoch 03/10  Loss: 5.8431
+[SupCon-v2] Epoch 04/10  Loss: 5.6897
+[SupCon-v2] Epoch 05/10  Loss: 5.6008
+[SupCon-v2] Epoch 06/10  Loss: 5.5776
+[SupCon-v2] Epoch 07/10  Loss: 5.5490
+[SupCon-v2] Epoch 08/10  Loss: 5.5087
+[SupCon-v2] Epoch 09/10  Loss: 5.4949
+[SupCon-v2] Epoch 10/10  Loss: 5.4991
+
+After Self-Train + PCAwhiten+GMM(40)→Hungarian(20):
+Purity: 0.4765  NMI: 0.3648  ARI: 0.2403
+
+=== Final clusters (merged K) with confidences ===
+  C 0 | n= 1028 | purity=0.417 | maj=0 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C 1 | n= 1543 | purity=0.329 | maj=1 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C 2 | n=  532 | purity=0.496 | maj=2 | conf μ=0.998  q25/50/75=(1.000/1.000/1.000)
+  C 3 | n=  224 | purity=0.531 | maj=16 | conf μ=0.998  q25/50/75=(1.000/1.000/1.000)
+  C 4 | n= 2389 | purity=0.251 | maj=3 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C 5 | n=  896 | purity=0.597 | maj=5 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C 6 | n= 1076 | purity=0.586 | maj=6 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C 7 | n= 1773 | purity=0.311 | maj=7 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C 8 | n=  582 | purity=0.555 | maj=8 | conf μ=0.999  q25/50/75=(1.000/1.000/1.000)
+  C 9 | n=  719 | purity=0.783 | maj=9 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C10 | n=  652 | purity=0.867 | maj=10 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C11 | n=  785 | purity=0.796 | maj=11 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C12 | n=  302 | purity=0.579 | maj=10 | conf μ=0.999  q25/50/75=(1.000/1.000/1.000)
+  C13 | n=  954 | purity=0.668 | maj=13 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C14 | n= 1044 | purity=0.518 | maj=14 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C15 | n= 1041 | purity=0.659 | maj=15 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C16 | n=  744 | purity=0.602 | maj=16 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C17 | n=  583 | purity=0.720 | maj=17 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C18 | n=  965 | purity=0.232 | maj=18 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+  C19 | n= 1014 | purity=0.135 | maj=9 | conf μ=1.000  q25/50/75=(1.000/1.000/1.000)
+[OK] Wrote ./clusters/20NG_ids.npy, _conf.npy, _pairs.json
+
+
+
+
+
+===== Results for run_bank_clustering =====
+
+Command: python3 /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/run_bank_clustering.py --variant full --drop_duration --selector mrmr --mrmr_alpha 0.5 --keep_top 8 --method auto --overspec 6 --restarts 120 --daem --min_pi 0.10 --weight_bits --trim_em --tau_hi 0.92 --seed 7
+
+[Data] Fetching UCI Bank Marketing from OpenML...
+[Data] Source: {'name': 'bank-marketing', 'version': 1}  | Rows=45,211 Cols=16
+[Data] Post-drop Rows=45,211  Cols=16  | Positive rate=0.883
+[Label] Flipped label polarity -> Positive rate=0.117
+[Cols] numeric=7  categorical=9
+[Preproc] One-hot+binned shape: (45211, 93)  (binary matrix)
+[Split] LEFT-HALF keep_top=8 | Example dims: ['num__V12_9.0 (MI=0.042)', 'cat__V16_success (MI=0.028)', 'cat__V9_unknown (MI=0.014)', 'num__V14_1.0 (MI=0.001)', 'num__V6_0.0 (MI=0.002)', 'num__V1_9.0 (MI=0.002)', 'num__V10_0.0 (MI=0.001)', 'cat__V4_tertiary (MI=0.002)']
+[Auto] Picked BMM (NMI=0.1097 ≥ KMeans=0.0284)
+
+BANK_L | K=2 | Pur:0.8929  NMI:0.1097  ARI:0.2175
+  C 0 | n=43700 | purity=0.901 | maj=0 | conf μ=1.000 q25/50/75=(1.000/1.000/1.000)
+  C 1 | n=1511 | purity=0.647 | maj=1 | conf μ=1.000 q25/50/75=(1.000/1.000/1.000)
+[OK] Wrote ./clusters/BANK_ids.npy, _conf.npy, _labels.npy
+
+
+
+
+
+===== Results for run_clustering_fashionmnist =====
+
+Command: python3 /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/run_clustering_fashionmnist.py
+
+FASHIONMNIST
+FashionMNIST
+
+=== SimCLR (Left-only) ===
+[SimCLR-left] 01/60  NT-Xent: 3.5811
+[SimCLR-left] 02/60  NT-Xent: 2.8829
+[SimCLR-left] 03/60  NT-Xent: 2.6951
+[SimCLR-left] 04/60  NT-Xent: 2.5937
+[SimCLR-left] 05/60  NT-Xent: 2.5208
+[SimCLR-left] 06/60  NT-Xent: 2.4676
+[SimCLR-left] 07/60  NT-Xent: 2.4307
+[SimCLR-left] 08/60  NT-Xent: 2.3988
+[SimCLR-left] 09/60  NT-Xent: 2.3739
+[SimCLR-left] 10/60  NT-Xent: 2.3497
+[SimCLR-left] 11/60  NT-Xent: 2.3263
+[SimCLR-left] 12/60  NT-Xent: 2.3141
+[SimCLR-left] 13/60  NT-Xent: 2.2976
+[SimCLR-left] 14/60  NT-Xent: 2.2891
+[SimCLR-left] 15/60  NT-Xent: 2.2774
+[SimCLR-left] 16/60  NT-Xent: 2.2683
+[SimCLR-left] 17/60  NT-Xent: 2.2557
+[SimCLR-left] 18/60  NT-Xent: 2.2484
+[SimCLR-left] 19/60  NT-Xent: 2.2407
+[SimCLR-left] 20/60  NT-Xent: 2.2308
+[SimCLR-left] 21/60  NT-Xent: 2.2275
+[SimCLR-left] 22/60  NT-Xent: 2.2207
+[SimCLR-left] 23/60  NT-Xent: 2.2077
+[SimCLR-left] 24/60  NT-Xent: 2.2052
+[SimCLR-left] 25/60  NT-Xent: 2.2057
+[SimCLR-left] 26/60  NT-Xent: 2.1971
+[SimCLR-left] 27/60  NT-Xent: 2.1898
+[SimCLR-left] 28/60  NT-Xent: 2.1870
+[SimCLR-left] 29/60  NT-Xent: 2.1829
+[SimCLR-left] 30/60  NT-Xent: 2.1799
+[SimCLR-left] 31/60  NT-Xent: 2.1739
+[SimCLR-left] 32/60  NT-Xent: 2.1706
+[SimCLR-left] 33/60  NT-Xent: 2.1675
+[SimCLR-left] 34/60  NT-Xent: 2.1630
+[SimCLR-left] 35/60  NT-Xent: 2.1605
+[SimCLR-left] 36/60  NT-Xent: 2.1573
+[SimCLR-left] 37/60  NT-Xent: 2.1510
+[SimCLR-left] 38/60  NT-Xent: 2.1469
+[SimCLR-left] 39/60  NT-Xent: 2.1477
+[SimCLR-left] 40/60  NT-Xent: 2.1466
+[SimCLR-left] 41/60  NT-Xent: 2.1420
+[SimCLR-left] 42/60  NT-Xent: 2.1397
+[SimCLR-left] 43/60  NT-Xent: 2.1365
+[SimCLR-left] 44/60  NT-Xent: 2.1342
+[SimCLR-left] 45/60  NT-Xent: 2.1329
+[SimCLR-left] 46/60  NT-Xent: 2.1271
+[SimCLR-left] 47/60  NT-Xent: 2.1242
+[SimCLR-left] 48/60  NT-Xent: 2.1268
+[SimCLR-left] 49/60  NT-Xent: 2.1208
+[SimCLR-left] 50/60  NT-Xent: 2.1209
+[SimCLR-left] 51/60  NT-Xent: 2.1195
+[SimCLR-left] 52/60  NT-Xent: 2.1185
+[SimCLR-left] 53/60  NT-Xent: 2.1173
+[SimCLR-left] 54/60  NT-Xent: 2.1119
+[SimCLR-left] 55/60  NT-Xent: 2.1132
+[SimCLR-left] 56/60  NT-Xent: 2.1123
+[SimCLR-left] 57/60  NT-Xent: 2.1084
+[SimCLR-left] 58/60  NT-Xent: 2.1072
+[SimCLR-left] 59/60  NT-Xent: 2.1076
+[SimCLR-left] 60/60  NT-Xent: 2.1045
+SIMCLR_L | kmeans | PCA=  0 -> Pur:0.6396 NMI:0.5765 ARI:0.4540
+SIMCLR_L | gmm    | PCA=  0 -> Pur:0.6159 NMI:0.6125 ARI:0.4490
+
+======== SUMMARY (sorted by Purity, NMI) ========
+SIMCLR_L | kmeans | PCA=  0 -> Pur:0.6396  NMI:0.5765  ARI:0.4540
+SIMCLR_L | gmm    | PCA=  0 -> Pur:0.6159  NMI:0.6125  ARI:0.4490
+
+=== SupCon fine-tune on 5% labels (left-only) ===
+[SupCon] Epoch 01/20  Loss: 5.4086
+[SupCon] Epoch 02/20  Loss: 5.3348
+[SupCon] Epoch 03/20  Loss: 5.2974
+[SupCon] Epoch 04/20  Loss: 5.2717
+[SupCon] Epoch 05/20  Loss: 5.2415
+[SupCon] Epoch 06/20  Loss: 5.2216
+[SupCon] Epoch 07/20  Loss: 5.2155
+[SupCon] Epoch 08/20  Loss: 5.1940
+[SupCon] Epoch 09/20  Loss: 5.1706
+[SupCon] Epoch 10/20  Loss: 5.1677
+[SupCon] Epoch 11/20  Loss: 5.1614
+[SupCon] Epoch 12/20  Loss: 5.1490
+[SupCon] Epoch 13/20  Loss: 5.1449
+[SupCon] Epoch 14/20  Loss: 5.1212
+[SupCon] Epoch 15/20  Loss: 5.1261
+[SupCon] Epoch 16/20  Loss: 5.1127
+[SupCon] Epoch 17/20  Loss: 5.1005
+[SupCon] Epoch 18/20  Loss: 5.1053
+[SupCon] Epoch 19/20  Loss: 5.0906
+[SupCon] Epoch 20/20  Loss: 5.0769
+SUPCON_L | gmm | PCA=  0 -> Pur:0.7317 NMI:0.6772 ARI:0.5705
+
+Cluster → majority label after SupCon+GMM:
+  Cluster  0 -> label 3 (4651/6361)
+  Cluster  1 -> label 7 (4897/5532)
+  Cluster  2 -> label 2 (3580/6797)
+  Cluster  3 -> label 0 (4104/5240)
+  Cluster  4 -> label 5 (5520/6490)
+  Cluster  5 -> label 1 (5285/5362)
+  Cluster  6 -> label 9 (5416/5952)
+  Cluster  7 -> label 8 (5431/5613)
+  Cluster  8 -> label 4 (3127/5278)
+  Cluster  9 -> label 6 (1889/7375)
+
+=== After SupCon+GMM (10 comps) ===
+  C 0 | n= 6361 | purity=0.731 | maj=3 | conf μ=0.986  q25/50/75=(1.000/1.000/1.000)
+  C 1 | n= 5532 | purity=0.885 | maj=7 | conf μ=0.995  q25/50/75=(1.000/1.000/1.000)
+  C 2 | n= 6797 | purity=0.527 | maj=2 | conf μ=0.987  q25/50/75=(1.000/1.000/1.000)
+  C 3 | n= 5240 | purity=0.783 | maj=0 | conf μ=0.995  q25/50/75=(1.000/1.000/1.000)
+  C 4 | n= 6490 | purity=0.851 | maj=5 | conf μ=0.996  q25/50/75=(1.000/1.000/1.000)
+  C 5 | n= 5362 | purity=0.986 | maj=1 | conf μ=0.998  q25/50/75=(1.000/1.000/1.000)
+  C 6 | n= 5952 | purity=0.910 | maj=9 | conf μ=0.997  q25/50/75=(1.000/1.000/1.000)
+  C 7 | n= 5613 | purity=0.968 | maj=8 | conf μ=0.998  q25/50/75=(1.000/1.000/1.000)
+  C 8 | n= 5278 | purity=0.592 | maj=4 | conf μ=0.986  q25/50/75=(1.000/1.000/1.000)
+  C 9 | n= 7375 | purity=0.256 | maj=6 | conf μ=0.979  q25/50/75=(1.000/1.000/1.000)
+
+Confused clusters: [2, 8, 9]
+[SupCon-v2] Epoch 01/10  Loss: 8.5688
+[SupCon-v2] Epoch 02/10  Loss: 8.4481
+[SupCon-v2] Epoch 03/10  Loss: 8.4051
+[SupCon-v2] Epoch 04/10  Loss: 8.3702
+[SupCon-v2] Epoch 05/10  Loss: 8.3390
+[SupCon-v2] Epoch 06/10  Loss: 8.3055
+[SupCon-v2] Epoch 07/10  Loss: 8.3000
+[SupCon-v2] Epoch 08/10  Loss: 8.2828
+[SupCon-v2] Epoch 09/10  Loss: 8.2614
+[SupCon-v2] Epoch 10/10  Loss: 8.2517
+
+After SupCon-v2 + split-refine + GMM(20)→merge(10):
+Purity: 0.7222  NMI: 0.6745  ARI: 0.5686
+
+=== Final clusters (merged 10) with confidences ===
+  C 0 | n= 6523 | purity=0.731 | maj=0 | conf μ=0.996  q25/50/75=(1.000/1.000/1.000)
+  C 1 | n= 5945 | purity=0.954 | maj=1 | conf μ=0.998  q25/50/75=(1.000/1.000/1.000)
+  C 2 | n= 7360 | purity=0.518 | maj=2 | conf μ=0.993  q25/50/75=(1.000/1.000/1.000)
+  C 3 | n= 7613 | purity=0.640 | maj=3 | conf μ=0.992  q25/50/75=(1.000/1.000/1.000)
+  C 4 | n= 5301 | purity=0.562 | maj=4 | conf μ=0.992  q25/50/75=(1.000/1.000/1.000)
+  C 5 | n= 7498 | purity=0.774 | maj=5 | conf μ=0.997  q25/50/75=(1.000/1.000/1.000)
+  C 6 | n= 4117 | purity=0.233 | maj=6 | conf μ=0.979  q25/50/75=(1.000/1.000/1.000)
+  C 7 | n= 3984 | purity=0.964 | maj=7 | conf μ=0.994  q25/50/75=(1.000/1.000/1.000)
+  C 8 | n= 5201 | purity=0.989 | maj=8 | conf μ=0.998  q25/50/75=(1.000/1.000/1.000)
+  C 9 | n= 6458 | purity=0.850 | maj=9 | conf μ=0.996  q25/50/75=(1.000/1.000/1.000)
+[OK] Wrote ./clusters/FASHIONMNIST_ids.npy, _conf.npy, _pairs.json
+
+
+
+
+
+===== Results for run_clustering_mnist =====
+
+Command: python3 /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/run_clustering_mnist.py
+
+MNIST
+
+=== SimCLR (Left-only) ===
+[SimCLR-left] 01/60  NT-Xent: 3.6043
+[SimCLR-left] 02/60  NT-Xent: 2.8981
+[SimCLR-left] 03/60  NT-Xent: 2.7438
+[SimCLR-left] 04/60  NT-Xent: 2.6579
+[SimCLR-left] 05/60  NT-Xent: 2.6018
+[SimCLR-left] 06/60  NT-Xent: 2.5628
+[SimCLR-left] 07/60  NT-Xent: 2.5295
+[SimCLR-left] 08/60  NT-Xent: 2.5045
+[SimCLR-left] 09/60  NT-Xent: 2.4852
+[SimCLR-left] 10/60  NT-Xent: 2.4625
+[SimCLR-left] 11/60  NT-Xent: 2.4439
+[SimCLR-left] 12/60  NT-Xent: 2.4280
+[SimCLR-left] 13/60  NT-Xent: 2.4134
+[SimCLR-left] 14/60  NT-Xent: 2.4000
+[SimCLR-left] 15/60  NT-Xent: 2.3924
+[SimCLR-left] 16/60  NT-Xent: 2.3819
+[SimCLR-left] 17/60  NT-Xent: 2.3703
+[SimCLR-left] 18/60  NT-Xent: 2.3708
+[SimCLR-left] 19/60  NT-Xent: 2.3598
+[SimCLR-left] 20/60  NT-Xent: 2.3529
+[SimCLR-left] 21/60  NT-Xent: 2.3458
+[SimCLR-left] 22/60  NT-Xent: 2.3401
+[SimCLR-left] 23/60  NT-Xent: 2.3361
+[SimCLR-left] 24/60  NT-Xent: 2.3303
+[SimCLR-left] 25/60  NT-Xent: 2.3233
+[SimCLR-left] 26/60  NT-Xent: 2.3223
+[SimCLR-left] 27/60  NT-Xent: 2.3132
+[SimCLR-left] 28/60  NT-Xent: 2.3125
+[SimCLR-left] 29/60  NT-Xent: 2.3077
+[SimCLR-left] 30/60  NT-Xent: 2.2988
+[SimCLR-left] 31/60  NT-Xent: 2.2981
+[SimCLR-left] 32/60  NT-Xent: 2.2978
+[SimCLR-left] 33/60  NT-Xent: 2.2911
+[SimCLR-left] 34/60  NT-Xent: 2.2864
+[SimCLR-left] 35/60  NT-Xent: 2.2847
+[SimCLR-left] 36/60  NT-Xent: 2.2799
+[SimCLR-left] 37/60  NT-Xent: 2.2786
+[SimCLR-left] 38/60  NT-Xent: 2.2755
+[SimCLR-left] 39/60  NT-Xent: 2.2729
+[SimCLR-left] 40/60  NT-Xent: 2.2683
+[SimCLR-left] 41/60  NT-Xent: 2.2653
+[SimCLR-left] 42/60  NT-Xent: 2.2649
+[SimCLR-left] 43/60  NT-Xent: 2.2610
+[SimCLR-left] 44/60  NT-Xent: 2.2581
+[SimCLR-left] 45/60  NT-Xent: 2.2580
+[SimCLR-left] 46/60  NT-Xent: 2.2546
+[SimCLR-left] 47/60  NT-Xent: 2.2516
+[SimCLR-left] 48/60  NT-Xent: 2.2499
+[SimCLR-left] 49/60  NT-Xent: 2.2523
+[SimCLR-left] 50/60  NT-Xent: 2.2491
+[SimCLR-left] 51/60  NT-Xent: 2.2434
+[SimCLR-left] 52/60  NT-Xent: 2.2425
+[SimCLR-left] 53/60  NT-Xent: 2.2412
+[SimCLR-left] 54/60  NT-Xent: 2.2421
+[SimCLR-left] 55/60  NT-Xent: 2.2372
+[SimCLR-left] 56/60  NT-Xent: 2.2354
+[SimCLR-left] 57/60  NT-Xent: 2.2340
+[SimCLR-left] 58/60  NT-Xent: 2.2357
+[SimCLR-left] 59/60  NT-Xent: 2.2324
+[SimCLR-left] 60/60  NT-Xent: 2.2340
+SIMCLR_L | kmeans | PCA=  0 -> Pur:0.6354 NMI:0.5467 ARI:0.4419
+SIMCLR_L | gmm    | PCA=  0 -> Pur:0.6856 NMI:0.6434 ARI:0.5183
+
+======== SUMMARY (sorted by Purity, NMI) ========
+SIMCLR_L | gmm    | PCA=  0 -> Pur:0.6856  NMI:0.6434  ARI:0.5183
+SIMCLR_L | kmeans | PCA=  0 -> Pur:0.6354  NMI:0.5467  ARI:0.4419
+
+=== SupCon fine-tune on 5% labels (left-only) ===
+[SupCon] Epoch 01/20  Loss: 5.5696
+[SupCon] Epoch 02/20  Loss: 5.4918
+[SupCon] Epoch 03/20  Loss: 5.4086
+[SupCon] Epoch 04/20  Loss: 5.3764
+[SupCon] Epoch 05/20  Loss: 5.3386
+[SupCon] Epoch 06/20  Loss: 5.3013
+[SupCon] Epoch 07/20  Loss: 5.2875
+[SupCon] Epoch 08/20  Loss: 5.2534
+[SupCon] Epoch 09/20  Loss: 5.2322
+[SupCon] Epoch 10/20  Loss: 5.2278
+[SupCon] Epoch 11/20  Loss: 5.1792
+[SupCon] Epoch 12/20  Loss: 5.1827
+[SupCon] Epoch 13/20  Loss: 5.1610
+[SupCon] Epoch 14/20  Loss: 5.1331
+[SupCon] Epoch 15/20  Loss: 5.1294
+[SupCon] Epoch 16/20  Loss: 5.1172
+[SupCon] Epoch 17/20  Loss: 5.1162
+[SupCon] Epoch 18/20  Loss: 5.0993
+[SupCon] Epoch 19/20  Loss: 5.0899
+[SupCon] Epoch 20/20  Loss: 5.0829
+SUPCON_L | gmm | PCA=  0 -> Pur:0.7978 NMI:0.7487 ARI:0.6767
+
+Cluster → majority label after SupCon+GMM:
+  Cluster  0 -> label 7 (2686/4558)
+  Cluster  1 -> label 0 (5756/11996)
+  Cluster  2 -> label 3 (4918/5051)
+  Cluster  3 -> label 1 (6243/6461)
+  Cluster  4 -> label 4 (4697/5184)
+  Cluster  5 -> label 8 (5216/5801)
+  Cluster  6 -> label 7 (3466/3674)
+  Cluster  7 -> label 9 (5152/6323)
+  Cluster  8 -> label 5 (4652/5406)
+  Cluster  9 -> label 2 (5083/5546)
+
+=== After SupCon+GMM (10 comps) ===
+  C 0 | n= 4558 | purity=0.589 | maj=7 | conf μ=0.981  q25/50/75=(1.000/1.000/1.000)
+  C 1 | n=11996 | purity=0.480 | maj=0 | conf μ=0.998  q25/50/75=(1.000/1.000/1.000)
+  C 2 | n= 5051 | purity=0.974 | maj=3 | conf μ=0.994  q25/50/75=(1.000/1.000/1.000)
+  C 3 | n= 6461 | purity=0.966 | maj=1 | conf μ=0.999  q25/50/75=(1.000/1.000/1.000)
+  C 4 | n= 5184 | purity=0.906 | maj=4 | conf μ=0.991  q25/50/75=(1.000/1.000/1.000)
+  C 5 | n= 5801 | purity=0.899 | maj=8 | conf μ=0.995  q25/50/75=(1.000/1.000/1.000)
+  C 6 | n= 3674 | purity=0.943 | maj=7 | conf μ=0.993  q25/50/75=(1.000/1.000/1.000)
+  C 7 | n= 6323 | purity=0.815 | maj=9 | conf μ=0.993  q25/50/75=(1.000/1.000/1.000)
+  C 8 | n= 5406 | purity=0.861 | maj=5 | conf μ=0.994  q25/50/75=(1.000/1.000/1.000)
+  C 9 | n= 5546 | purity=0.917 | maj=2 | conf μ=0.991  q25/50/75=(1.000/1.000/1.000)
+
+Confused clusters: [0, 1]
+[SupCon-v2] Epoch 01/10  Loss: 8.4808
+[SupCon-v2] Epoch 02/10  Loss: 8.3901
+[SupCon-v2] Epoch 03/10  Loss: 8.3150
+[SupCon-v2] Epoch 04/10  Loss: 8.2730
+[SupCon-v2] Epoch 05/10  Loss: 8.2245
+[SupCon-v2] Epoch 06/10  Loss: 8.1814
+[SupCon-v2] Epoch 07/10  Loss: 8.1804
+[SupCon-v2] Epoch 08/10  Loss: 8.1421
+[SupCon-v2] Epoch 09/10  Loss: 8.1362
+[SupCon-v2] Epoch 10/10  Loss: 8.1095
+
+After SupCon-v2 + split-refine + GMM(20)→merge(10):
+Purity: 0.8655  NMI: 0.7747  ARI: 0.7307
+
+=== Final clusters (merged 10) with confidences ===
+  C 0 | n= 7193 | purity=0.778 | maj=0 | conf μ=0.996  q25/50/75=(1.000/1.000/1.000)
+  C 1 | n= 6181 | purity=0.986 | maj=1 | conf μ=0.999  q25/50/75=(1.000/1.000/1.000)
+  C 2 | n= 7400 | purity=0.740 | maj=2 | conf μ=0.992  q25/50/75=(1.000/1.000/1.000)
+  C 3 | n= 6592 | purity=0.835 | maj=3 | conf μ=0.997  q25/50/75=(1.000/1.000/1.000)
+  C 4 | n= 4681 | purity=0.942 | maj=4 | conf μ=0.993  q25/50/75=(1.000/1.000/1.000)
+  C 5 | n= 4985 | purity=0.914 | maj=5 | conf μ=0.997  q25/50/75=(1.000/1.000/1.000)
+  C 6 | n= 4562 | purity=0.942 | maj=6 | conf μ=0.995  q25/50/75=(1.000/1.000/1.000)
+  C 7 | n= 5344 | purity=0.975 | maj=7 | conf μ=0.998  q25/50/75=(1.000/1.000/1.000)
+  C 8 | n= 5605 | purity=0.936 | maj=8 | conf μ=0.997  q25/50/75=(1.000/1.000/1.000)
+  C 9 | n= 7457 | purity=0.742 | maj=9 | conf μ=0.994  q25/50/75=(1.000/1.000/1.000)
+[OK] Wrote ./clusters/MNIST_ids.npy, _conf.npy, _pairs.json
+
+
+
+
+
+===== Results for run_har_clustering =====
+
+Command: python3 /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/run_har_clustering.py --selector mi --keep_top 128 --pca 256 --method auto --overspec 20 --cov_type full --restarts 25 --seed 7
+
+[Data] Fetching UCI HAR from OpenML...
+[Data] Source: {'name': 'har', 'version': 1}  | Rows=10,299 Cols=561  | Classes=6
+[Preproc] Standardize (z-score)...
+[Preproc] PCA → 256 dims (whiten)...
+[Preproc] Final feature shape: (10299, 256)
+[Split] LEFT-HALF keep_top=128 | Example dims: ['f0 (MI=0.7834)', 'f4 (MI=0.4296)', 'f3 (MI=0.3853)', 'f2 (MI=0.2436)', 'f1 (MI=0.2091)', 'f6 (MI=0.1722)', 'f207 (MI=0.1647)', 'f12 (MI=0.1469)', 'f10 (MI=0.1444)', 'f214 (MI=0.1364)']
+[Auto] Picked KMeans (NMI=0.7707 ≥ GMM=0.6919)
+
+HAR_L | K=6 | Pur:0.8712  NMI:0.7707  ARI:0.7355
+  C 0 | n=1925 | purity=0.971 | maj=5 | conf μ=0.439 q25/50/75=(0.315/0.448/0.578)
+  C 1 | n=1722 | purity=0.774 | maj=3 | conf μ=0.321 q25/50/75=(0.134/0.293/0.476)
+  C 2 | n=1951 | purity=0.776 | maj=4 | conf μ=0.310 q25/50/75=(0.144/0.283/0.450)
+  C 3 | n=1353 | purity=0.949 | maj=2 | conf μ=0.245 q25/50/75=(0.142/0.244/0.344)
+  C 4 | n=1742 | purity=0.834 | maj=1 | conf μ=0.269 q25/50/75=(0.145/0.259/0.377)
+  C 5 | n=1606 | purity=0.946 | maj=0 | conf μ=0.274 q25/50/75=(0.166/0.278/0.375)
+[OK] Wrote ./clusters/HAR_ids.npy, _conf.npy, _labels.npy
+
+
+
+
+
+===== Results for run_mushroom_clustering =====
+
+Command: python3 /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/run_mushroom_clustering.py --selector mrmr --mrmr_alpha 0.5 --keep_top 6 --method bmm --restarts 100 --daem --seed 42
+
+[Data] Fetching UCI Mushroom from OpenML...
+[Data] One-hot encoding...
+[Data] Shape: (8124, 117)  | Positive rate (poisonous)=0.482
+[Split] Ranking features by mutual information...
+[Split] Left-half K=6  | Example top dims: ['odor_n (MI=0.367)', 'cap-shape_b (MI=0.019)', 'odor_f (MI=0.248)', 'gill-color_b (MI=0.187)', 'stalk-surface-above-ring_k (MI=0.197)', 'gill-size_n (MI=0.160)']
+
+MUSHROOM_L | K=2 | Pur:0.9734  NMI:0.8231  ARI:0.8965
+  C 0 | n=3892 | purity=0.975 | maj=1 | conf μ=0.978 q25/50/75=(1.000/1.000/1.000)
+  C 1 | n=4232 | purity=0.972 | maj=0 | conf μ=0.972 q25/50/75=(1.000/1.000/1.000)
+[OK] Wrote ./clusters/MUSHROOM_ids.npy, _conf.npy, _labels.npy
+
+
+
+
+

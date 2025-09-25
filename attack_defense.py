@@ -1,0 +1,1532 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+# === defense_attack.py ===
+# VFL toy pipeline with multiple defenses. Optionally consumes clusters in ./clusters/.
+from typing import Optional, List, Dict, Any, Tuple
+# !pip install torch torchvision --quiet
+
+
+import os, json   # ADD
+# ...
+USE_CLUSTERING = True
+CLUSTER_DIR = "./clusters"
+
+from datasets import get_dataset
+
+
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torchvision import datasets, transforms
+import numpy as np
+from collections import deque, defaultdict
+import random
+from typing import Dict, Any, Tuple, Optional, List
+
+# ==============================
+# CONFIG
+# ==============================
+# DATASETS = ['MNIST', 'FashionMNIST', 'KMNIST']  # keep as-is
+DATASETS = ['MUSHROOM']
+EPOCHS = 50
+BATCH_SIZE = 128
+TRAIN_SAMPLES = 5000
+TEST_SAMPLES = 1000
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+SEED = 0
+
+# Defense hyperparams (reasonable defaults; adjust as you like)
+COS_EMA_THRESH = 0.75
+COS_EMA_BUF = 20
+
+GRAD_NORM_MAX = 5.0  # total param grad clip (detected if pre-clip > GRAD_NORM_MAX)
+
+DRIFT_EMA_M = 0.98      # EMA momentum for per-label baselines
+DRIFT_Z_THR = 18.0      # L2 of standardized mean; tune 15-25
+DRIFT_MIN_SAMPLES = 16  # only evaluate drift if label count >= this in batch
+
+CONSIST_COS_THR = 0.25  # cos(∇xa, ∇xb) must be >= this
+
+AE_WARMUP_STEPS = 120        # batches to train AE as "baseline"
+AE_HID = 64                  # AE bottleneck dim
+AE_LR = 1e-3
+AE_FLAG_KSIGMA = 3.0         # flag if recon_err > mu + K*sigma (EMA)
+AE_EMA_MU = 0.98
+AE_EMA_SIG = 0.98
+
+PRINT_PROGRESS_EVERY = 0  # set >0 to see per-batch logs
+
+# ==============================
+# SEEDING
+# ==============================
+def set_seed(seed=0):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+set_seed(SEED)
+
+# ==============================
+# DATA
+# ==============================
+def _to_XA_XB_Y_from_numpy(X_np: np.ndarray, y_np: np.ndarray):
+    """
+    Accepts:
+      X_np: [N, C, H, W] (images) OR [N, D] (tabular)
+      y_np: [N]
+    Returns:
+      XA, XB, Y as torch tensors with XA/XB split along last dimension.
+    """
+    X = torch.tensor(X_np, dtype=torch.float32)
+    if X.ndim == 2:             # tabular [N, D] -> [N, 1, 1, D]
+        X = X.unsqueeze(1).unsqueeze(2)
+    elif X.ndim == 3:           # [N, H, W] -> [N, 1, H, W]
+        X = X.unsqueeze(1)
+    # else assume [N, C, H, W] is already fine
+
+    Y = torch.tensor(y_np, dtype=torch.long)
+
+    # split horizontally on the last dim
+    def split_block(Xt):
+        w = Xt.shape[-1]
+        # If odd number of features, pad one zero feature so halves are equal
+        if (w % 2) == 1:
+            pad_shape = list(Xt.shape)
+            pad_shape[-1] = 1
+            pad = torch.zeros(pad_shape, dtype=Xt.dtype, device=Xt.device)
+            Xt = torch.cat([Xt, pad], dim=-1)
+            w += 1
+        mid = w // 2
+        return Xt[..., :mid], Xt[..., mid:]
+
+
+    XA_all, XB_all = split_block(X)
+    return XA_all, XB_all, Y
+
+
+
+def vertical_split(img):
+    # split at the middle of width for any dataset (MNIST: 28→14, CIFAR10: 32→16, etc.)
+    w = img.shape[-1]
+    mid = w // 2
+    return img[:, :, :mid], img[:, :, mid:]
+
+def _view_dims(xa_sample: torch.Tensor, xb_sample: torch.Tensor) -> Tuple[int, int, int]:
+    a_dim = int(np.prod(xa_sample.shape))  # flattened A-view
+    b_dim = int(np.prod(xb_sample.shape))  # flattened B-view
+    return a_dim, b_dim, a_dim + b_dim
+
+
+def load_dataset(dataset_class):
+    tf = transforms.ToTensor()
+    train_data = dataset_class('.', train=True, download=True, transform=tf)
+    test_data = dataset_class('.', train=False, download=True, transform=tf)
+
+    def split(data):
+        XA, XB, Y = [], [], []
+        for img, label in data:
+            a, b = vertical_split(img)
+            XA.append(a); XB.append(b); Y.append(label)
+        return torch.stack(XA), torch.stack(XB), torch.tensor(Y)
+
+    return split(train_data), split(test_data)
+
+
+
+def pretty_print_suite(suite_name: str, suite: Dict[str, Dict[str, Any]]) -> None:
+    print(f"\n=== {suite_name} — Per-Defense Results ===")
+    hdr = f"{'Defense':32s}  {'Acc%':>7s}  {'accepted':>9s}  {'flagged':>8s}  {'total':>7s}  {'detect%':>8s}"
+    print(hdr)
+    print("-" * len(hdr))
+    for key, title in DEFENSE_ORDER:
+        r = suite[key]
+        print(f"{r['title']:<32s}  {r['acc']*100:7.2f}  {r['accepted']:9d}  {r['flagged']:8d}  {r['total']:7d}  {r['detect_rate']:8.1f}")
+
+
+def pretty_print_compare(suite_A_name: str,
+                         suite_A: Dict[str, Dict[str, Any]],
+                         suite_B_name: str,
+                         suite_B: Dict[str, Dict[str, Any]]) -> None:
+    print(f"\n=== Accuracy & Detect Rate: {suite_A_name} vs {suite_B_name} ===")
+    hdr = (f"{'Defense':32s}  "
+           f"{suite_A_name[:10]:>11s}  {' ':1s}  "
+           f"{suite_B_name[:10]:>11s}  {' ':1s}  "
+           f"{'ΔAcc':>7s}   "
+           f"{'DetA%':>6s}  {'DetB%':>6s}")
+    print(hdr)
+    print("-" * len(hdr))
+    for key, title in DEFENSE_ORDER:
+        a = suite_A[key]; b = suite_B[key]
+        da = a['acc']*100.0; db = b['acc']*100.0
+        print(f"{a['title']:<32s}  {da:11.2f}    {db:11.2f}    {da-db:+7.2f}   {a['detect_rate']:6.1f}  {b['detect_rate']:6.1f}")
+
+
+# >>> ADDED: simple helpers to choose clustering mode and run suites
+
+def make_swapped_XA(dataset_name: str,
+                    XA_train_clean: torch.Tensor,
+                    Y_train: torch.Tensor,
+                    mode: str = "pred",
+                    select_idx: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, str]:
+    """
+    Build swapped-A for the attack.
+    Returns (XA_swapped, note_string).
+    """
+    mode = mode.lower()
+
+    if mode == "none":
+        return XA_train_clean, "[INFO] No attack (mode=none)."
+
+    if mode == "gt":
+        return generate_cluster_swapped_attack(XA_train_clean, Y_train), \
+               "[INFO] Using GROUND-TRUTH label clusters."
+
+    # mode == "pred"
+    cluster_info = load_cluster_info(dataset_name, select_idx=select_idx)
+    if cluster_info is None:
+        xa_sw = generate_cluster_swapped_attack(XA_train_clean, Y_train)
+        return xa_sw, f"[WARN] No predicted clusters found for {dataset_name}; falling back to oracle label swap."
+
+    # Preferred path: top-k targets + per-sample farthest donors (pixel/cosine space)
+    try:
+        topk = _infer_topk_targets(dataset_name, XA_train_clean, cluster_info["ids"], k=3)
+        xa_sw = generate_cluster_swapped_attack_topk(
+            XA_train_clean,
+            cluster_info["ids"],
+            topk_map=topk,
+            conf=cluster_info.get("conf", None),
+            core_q=0.60,
+            seed=SEED
+        )
+        return xa_sw, f"[INFO] Using PREDICTED clusters for {dataset_name} (top-k sample-wise farthest, pixel)."
+    except Exception as e:
+        # fall through to derangement
+        pass
+
+    # Fallback 1: max-distance derangement on cluster centroids
+    try:
+        perm = infer_and_maybe_save_perm(dataset_name, XA_train_clean, cluster_info["ids"])
+        xa_sw = generate_cluster_swapped_attack_from_perm(
+            XA_train_clean, cluster_info["ids"], mapping=perm
+        )
+        return xa_sw, f"[INFO] Using PREDICTED clusters for {dataset_name} (max-distance derangement)."
+    except Exception as e:
+        # fall through to explicit pairs if present
+        pass
+
+    # Fallback 2: explicit cluster pairs (if provided)
+    pairs = cluster_info.get("pairs", None)
+    if pairs is not None:
+        xa_sw = generate_cluster_swapped_attack_from_clusters(
+            XA_train_clean, cluster_info["ids"], pairs=pairs
+        )
+        return xa_sw, f"[INFO] Using PREDICTED clusters for {dataset_name} (pairs)."
+
+    # Last resort: oracle label swap
+    xa_sw = generate_cluster_swapped_attack(XA_train_clean, Y_train)
+    return xa_sw, f"[WARN] Predicted ids present but pairing failed; falling back to oracle label swap."
+
+
+def _reset_everything(seed=0):
+    # make the two runs per defense comparable
+    set_seed(seed)
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+
+def run_defense_suite_once(
+    dataset_name: str,
+    XA_swapped: torch.Tensor,
+    XB_train: torch.Tensor,
+    Y_train: torch.Tensor,
+    XA_test: torch.Tensor,
+    XB_test: torch.Tensor,
+    Y_test: torch.Tensor,
+    epochs: int,
+    seed: int,
+    XA_clean_train: torch.Tensor = None
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Runs the full defense suite ONCE and returns:
+      {
+        defense_key: {
+          "title": str,
+          "acc": float,
+          "accepted": int,
+          "flagged": int,
+          "total": int,
+          "detect_rate": float
+        }, ...
+      }
+    Uses the exact same trainers as the main loop so results are consistent.
+    """
+    results: Dict[str, Dict[str, Any]] = {}
+
+    for key, title in DEFENSE_ORDER:
+        _reset_everything(seed)
+
+        if key == "none":
+            A, B, C, stats = train_once(XA_swapped, XB_train, Y_train, defense_name="none", epochs=epochs)
+
+        elif key == "cosine_ema":
+            cos_def = CosineEMADefense(COS_EMA_THRESH, COS_EMA_BUF)
+            A, B, C, stats = train_cosine_ema_stealth(XA_swapped, XB_train, Y_train, epochs=epochs, defense=cos_def)
+
+        elif key == "per_label_drift":
+            assert XA_clean_train is not None, "Need XA_clean_train for drift-stealth."
+            A, B, C, stats = train_drift_stealth(XA_clean_train, XA_swapped, XB_train, Y_train, epochs=epochs)
+
+        elif key == "cross_party_consistency":
+            cpc_def = CrossPartyConsistencyDefense(CONSIST_COS_THR)
+            A, B, C, stats = train_cross_consistency_stealth(
+                XA_swapped, XB_train, Y_train, epochs=epochs, defense=cpc_def,
+                mm_l2_q=0.90, align_steps=2, align_lr=5e-3
+            )
+
+        else:
+            A, B, C, stats = train_once(XA_swapped, XB_train, Y_train, defense_name=key, epochs=epochs)
+
+        acc = evaluate(A, B, C, XA_test, XB_test, Y_test)
+        accepted = int(stats.get("accepted", 0))
+        flagged  = int(stats.get("flagged", 0))
+        total    = int(stats.get("total",   0))
+        detect_rate = (flagged / max(1, total)) * 100.0
+
+        results[key] = {
+            "title": title,
+            "acc": float(acc),
+            "accepted": accepted,
+            "flagged": flagged,
+            "total": total,
+            "detect_rate": detect_rate
+        }
+    return results
+
+
+
+def generate_cluster_swapped_attack_from_perm(
+    XA: torch.Tensor,
+    groups: torch.Tensor,                        # [N], cluster id per sample
+    mapping: List[List[int]]                     # list of [src_id, dst_id]
+) -> torch.Tensor:
+    """
+    Apply a permutation of clusters (a derangement): for every source cluster s,
+    replace ALL its samples with content drawn from destination cluster t != s.
+    Replicate from t as needed to match sizes. No cluster stays in place.
+    """
+    XA_sw = XA.clone()
+    src_to_dst = {int(s): int(t) for (s, t) in mapping}
+    uniq = torch.unique(groups).tolist()
+    cluster_to_indices = {g: (groups == g).nonzero(as_tuple=True)[0] for g in uniq}
+
+    for s in uniq:
+        t = src_to_dst.get(int(s))
+        if t is None:  # should not happen
+            continue
+        idx_s = cluster_to_indices.get(s, torch.empty(0, dtype=torch.long))
+        idx_t = cluster_to_indices.get(t, torch.empty(0, dtype=torch.long))
+        if len(idx_s) == 0 or len(idx_t) == 0:
+            continue
+        reps = (len(idx_s) + len(idx_t) - 1) // len(idx_t)
+        idx_t_rep = idx_t.repeat(reps)[:len(idx_s)]
+        # IMPORTANT: copy from ORIGINAL XA (not XA_sw) to avoid cascading writes
+        XA_sw[idx_s] = XA[idx_t_rep]
+    return XA_sw
+
+
+# ====== UNLABELED PAIRING: farthest-first on A-view space ======
+# ====== UNLABELED ASSIGNMENT: max-distance derangement on A-view ======
+
+# ====== STRONGER UNLABELED ATTACK: top-k targets + per-sample farthest donors ======
+
+def _xa_to_vecs(XA: torch.Tensor) -> torch.Tensor:
+    V = XA.view(XA.size(0), -1).float()
+    V = V / (V.norm(dim=1, keepdim=True) + 1e-8)
+    return V
+
+@torch.no_grad()
+def _cluster_centroids_and_D(XA: torch.Tensor, groups: torch.Tensor):
+    V = _xa_to_vecs(XA)
+    uniq = sorted(torch.unique(groups).tolist())
+    C_list, sizes = [], {}
+    for g in uniq:
+        idx = (groups == g).nonzero(as_tuple=True)[0]
+        sizes[int(g)] = int(len(idx))
+        m = V[idx].mean(0); m = m / (m.norm() + 1e-8)
+        C_list.append(m)
+    C = torch.stack(C_list, 0)
+    S = (C @ C.t()).clamp(-1, 1)
+    D = (1.0 - S).cpu().numpy()
+    np.fill_diagonal(D, 0.0)
+    return uniq, C, D, sizes
+
+def _infer_topk_targets(dataset_name: str, XA: torch.Tensor, groups: torch.Tensor, k: int = 3):
+    """
+    For each cluster, pick its k farthest destination clusters (excluding self).
+    Saves/loads ./clusters/<DATASET>_topk.json as {src_id: [dst_id,...]}.
+    """
+    path = os.path.join(CLUSTER_DIR, f"{dataset_name}_topk.json")
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                obj = json.load(f)
+                return {int(k): [int(x) for x in v] for k, v in obj.items()}
+        except Exception:
+            pass
+
+    uniq, _, D, _ = _cluster_centroids_and_D(XA, groups)
+    id_to_pos = {gid: i for i, gid in enumerate(uniq)}
+    pos_to_id = {i: gid for i, gid in enumerate(uniq)}
+
+    topk = {}
+    for i, gi in enumerate(uniq):
+        order = np.argsort(-D[i])  # farthest first
+        dests = [pos_to_id[j] for j in order if j != i][:max(1, k)]
+        topk[int(gi)] = [int(d) for d in dests]
+
+    try:
+        with open(path, "w") as f:
+            json.dump(topk, f)
+    except Exception:
+        pass
+    return topk
+
+@torch.no_grad()
+def generate_cluster_swapped_attack_topk(
+    XA: torch.Tensor,
+    groups: torch.Tensor,
+    topk_map: Dict[int, List[int]],
+    conf: Optional[torch.Tensor] = None,
+    core_q: float = 0.60,        # use top 60% confidence donors if conf is available
+    seed: int = 0,
+    chunk: int = 1024            # compute matmul in chunks to keep memory happy
+) -> torch.Tensor:
+    """
+    For each source cluster s:
+      1) split its samples into |topk_map[s]| parts,
+      2) for each part choose a destination t in topk_map[s],
+      3) for each victim sample x in that part, find the donor y in t's core (or all)
+         with minimal cosine similarity (i.e., maximum distance), and copy y's pixels.
+    Ensures every sample is swapped; no self; replicates donors as needed.
+    """
+    rng = np.random.default_rng(seed)
+    V = _xa_to_vecs(XA)  # [N, D]
+    XA_sw = XA.clone()
+
+    uniq = sorted(torch.unique(groups).tolist())
+    cluster_to_indices = {g: (groups == g).nonzero(as_tuple=True)[0] for g in uniq}
+
+    # donor cores per cluster (by confidence if provided)
+    donor_pool = {}
+    for g in uniq:
+        idx = cluster_to_indices[g]
+        if len(idx) == 0:
+            donor_pool[g] = idx
+            continue
+        if conf is None:
+            donor_pool[g] = idx
+        else:
+            c = conf[idx]
+            thr = torch.quantile(c, torch.tensor(core_q, dtype=c.dtype)).item()
+            core = idx[(c >= thr).nonzero(as_tuple=True)[0]]
+            donor_pool[g] = core if len(core) >= 5 else idx  # fall back if too small
+
+    for s in uniq:
+        victims = cluster_to_indices[s]
+        if len(victims) == 0:
+            continue
+        targets = topk_map.get(int(s), [])
+        if len(targets) == 0:
+            # degenerate: shove everything to farthest non-self by size
+            others = [g for g in uniq if g != s]
+            targets = [others[0]]
+
+        # split victims into |targets| approximately equal parts (shuffle for mixing)
+        perm = torch.from_numpy(rng.permutation(len(victims))).long()
+        victims = victims[perm]
+        parts = np.array_split(victims.numpy(), len(targets))
+
+        for t, part in zip(targets, parts):
+            part = torch.tensor(part, dtype=torch.long)
+            if len(part) == 0:
+                continue
+
+            donors = donor_pool.get(t, torch.empty(0, dtype=torch.long))
+            if len(donors) == 0:
+                continue
+
+            # choose farthest donor for each victim in this part
+            # compute similarities in chunks: S = V_part @ V_donor^T, pick argmin per row
+            chosen = []
+            Vd = V[donors]  # [Pd, D]
+            for s0 in range(0, len(part), chunk):
+                s1 = min(len(part), s0 + chunk)
+                vids = part[s0:s1]
+                Vs = V[vids]                       # [m, D]
+                S = (Vs @ Vd.t()).cpu()            # [m, Pd]
+                j = torch.argmin(S, dim=1)         # farthest (min cosine sim)
+                chosen_idx = donors[j]
+                chosen.append(chosen_idx)
+            chosen = torch.cat(chosen, 0)
+
+            # replicate if any mismatch in lengths (shouldn't happen but safe)
+            if len(chosen) < len(part):
+                reps = (len(part) + len(chosen) - 1) // len(chosen)
+                chosen = chosen.repeat(reps)[:len(part)]
+
+            # IMPORTANT: copy from original XA
+            XA_sw[part] = XA[chosen]
+
+    return XA_sw
+
+@torch.no_grad()
+def _cluster_distance_matrix(XA: torch.Tensor, groups: torch.Tensor):
+    """
+    Returns:
+      uniq_ids: sorted unique cluster ids (list[int])
+      C      : [K, D] L2-normalized centroids (torch)
+      D      : [K, K] cosine distances (numpy)
+      sizes  : dict cluster_id -> count
+    """
+    V = _xa_to_vecs(XA)
+    uniq_ids = sorted(torch.unique(groups).tolist())
+    C_list, sizes = [], {}
+    for g in uniq_ids:
+        idx = (groups == g).nonzero(as_tuple=True)[0]
+        sizes[int(g)] = int(len(idx))
+        m = V[idx].mean(dim=0)
+        m = m / (m.norm() + 1e-8)
+        C_list.append(m)
+    C = torch.stack(C_list, 0)
+    S = (C @ C.t()).clamp(-1, 1)   # cosine similarity
+    D = (1.0 - S).cpu().numpy()    # cosine distance
+    np.fill_diagonal(D, 0.0)
+    return uniq_ids, C, D, sizes
+
+def _max_derangement_greedy(D: np.ndarray) -> np.ndarray:
+    """
+    Fallback if SciPy isn't present. Build a derangement that approximately
+    maximizes total distance; then repair any self-assignments by swaps.
+    """
+    K = D.shape[0]
+    assert K > 1, "Need K>1 for derangement."
+    avail = set(range(K))
+    perm = np.full(K, -1, dtype=int)
+
+    # start with rows that have large max distances
+    order = np.argsort(-D.max(axis=1))
+    for i in order:
+        # pick best available dest != i (unless only self remains)
+        candidates = [j for j in avail if j != i] or [i]
+        j_best = max(candidates, key=lambda j: D[i, j])
+        perm[i] = j_best
+        avail.remove(j_best)
+
+    # repair any i with perm[i] == i by swapping with some r
+    fixed = np.where(perm == np.arange(K))[0].tolist()
+    for i in fixed:
+        for r in range(K):
+            if r == i:
+                continue
+            a, b = perm[i], perm[r]
+            # swapping targets should not create new fixed points
+            if a != r and b != i:
+                perm[i], perm[r] = b, a
+                break
+    assert np.all(perm != np.arange(K)), "derangement repair failed"
+    return perm
+
+def _solve_max_derangement(D: np.ndarray) -> np.ndarray:
+    """
+    Solve: maximize sum_i D[i, perm[i]] subject to perm is a derangement.
+    Uses Hungarian on the negated matrix with a huge diagonal penalty.
+    Falls back to a greedy derangement if SciPy is unavailable.
+    """
+    K = D.shape[0]
+    assert K > 1, "Need K>1 for derangement."
+    try:
+        from scipy.optimize import linear_sum_assignment
+        BIG = 1e6
+        cost = -D.copy()
+        for i in range(K):
+            cost[i, i] = BIG  # forbid self-assign
+        row_ind, col_ind = linear_sum_assignment(cost)
+        perm = col_ind
+        # rare safety: if any fixed point slipped in, repair greedily
+        if np.any(perm == np.arange(K)):
+            perm = _max_derangement_greedy(D)
+        return perm
+    except Exception:
+        return _max_derangement_greedy(D)
+
+def infer_and_maybe_save_perm(
+    dataset_name: str,
+    XA_train_clean: torch.Tensor,
+    cluster_ids: torch.Tensor
+) -> List[List[int]]:
+    """
+    If ./clusters/<DATASET>_perm.json exists, load it.
+    Otherwise compute a max-distance derangement on cluster centroids,
+    save it, and return as [[src_id, dst_id], ...].
+    """
+    perm_path = os.path.join(CLUSTER_DIR, f"{dataset_name}_perm.json")
+    if os.path.exists(perm_path):
+        try:
+            with open(perm_path, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass  # recompute on corruption
+
+    uniq_ids, _, D, _ = _cluster_distance_matrix(XA_train_clean, cluster_ids)
+    perm_idx = _solve_max_derangement(D)
+    mapping = [[int(uniq_ids[i]), int(uniq_ids[perm_idx[i]])] for i in range(len(uniq_ids))]
+
+    try:
+        with open(perm_path, "w") as f:
+            json.dump(mapping, f)
+    except Exception:
+        pass  # non-fatal
+
+    return mapping
+
+
+# ==============================
+# MODELS
+# ==============================
+class ClientA(nn.Module):
+    def __init__(self): super().__init__(); self.features = nn.Flatten()
+    def forward(self, x): return F.relu(self.features(x))
+
+class ClientB(nn.Module):
+    def __init__(self): super().__init__(); self.features = nn.Flatten()
+    def forward(self, x): return F.relu(self.features(x))
+
+class ServerC(nn.Module):
+    def __init__(self, in_dim: int, n_classes: int):
+        super().__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(in_dim, 100),
+            nn.ReLU(),
+            nn.Linear(100, n_classes)
+        )
+    def forward(self, xa, xb):
+        return self.fc(torch.cat([xa, xb], dim=1))
+
+
+# ==============================
+# ATTACK: CONSISTENT CLUSTER SWAP (NO LEFTOVERS)
+# ==============================
+
+
+def load_cluster_info(dataset_name: str, select_idx: Optional[torch.Tensor] = None):
+    dataset_name = dataset_name.upper()
+    ids_path   = os.path.join(CLUSTER_DIR, f"{dataset_name}_ids.npy")
+    conf_path  = os.path.join(CLUSTER_DIR, f"{dataset_name}_conf.npy")
+    pairs_path = os.path.join(CLUSTER_DIR, f"{dataset_name}_pairs.json")
+
+    if not os.path.exists(ids_path):
+        return None
+
+    ids = np.load(ids_path)
+    conf = np.load(conf_path) if os.path.exists(conf_path) else None
+
+    if select_idx is not None:
+        sel = select_idx.cpu().numpy()
+        ids = ids[sel]
+        if conf is not None:
+            conf = conf[sel]
+    else:
+        # fall back to original behavior, but explicit about size
+        n_needed = len(ids) if conf is None else len(conf)
+        ids = ids[:n_needed]
+        if conf is not None:
+            conf = conf[:n_needed]
+
+    pairs = None
+    if os.path.exists(pairs_path):
+        with open(pairs_path, "r") as f:
+            pairs = json.load(f)
+
+    return {
+        "ids": torch.tensor(ids, dtype=torch.long),
+        "conf": (torch.tensor(conf, dtype=torch.float32) if conf is not None else None),
+        "pairs": pairs
+    }
+
+def generate_cluster_swapped_attack_from_clusters(
+    XA: torch.Tensor,
+    groups: torch.Tensor,                          # [N], cluster id per sample
+    pairs: Optional[List[List[int]]] = None
+) -> torch.Tensor:
+    XA_swapped = XA.clone()
+    uniq = torch.unique(groups).tolist()
+
+    # default: sequential pairing if none provided
+    if pairs is None:
+        uniq_sorted = sorted(uniq)
+        pairs = [[uniq_sorted[i], uniq_sorted[i+1]]
+                 for i in range(0, len(uniq_sorted)-1, 2)]
+
+    cluster_to_indices = {g: (groups == g).nonzero(as_tuple=True)[0] for g in uniq}
+
+    for ga, gb in pairs:
+        idx_i = cluster_to_indices.get(ga, torch.tensor([], dtype=torch.long))
+        idx_j = cluster_to_indices.get(gb, torch.tensor([], dtype=torch.long))
+        if len(idx_i) == 0 or len(idx_j) == 0: continue
+
+        # replicate shorter to match longer, then symmetric swap (no leftovers)
+        if len(idx_i) >= len(idx_j):
+            longer, shorter = idx_i, idx_j
+        else:
+            longer, shorter = idx_j, idx_i
+
+        reps = (len(longer) + len(shorter) - 1) // len(shorter)
+        shorter_rep = shorter.repeat(reps)[:len(longer)]
+
+        if len(idx_i) >= len(idx_j):
+            XA_swapped[idx_i] = XA[shorter_rep]
+            reps_back = (len(idx_j) + len(idx_i) - 1) // len(idx_i)
+            idx_i_rep = idx_i.repeat(reps_back)[:len(idx_j)]
+            XA_swapped[idx_j] = XA[idx_i_rep]
+        else:
+            XA_swapped[idx_j] = XA[shorter_rep]
+            reps_back = (len(idx_i) + len(idx_j) - 1) // len(idx_j)
+            idx_j_rep = idx_j.repeat(reps_back)[:len(idx_i)]
+            XA_swapped[idx_i] = XA[idx_j_rep]
+
+    return XA_swapped
+
+def generate_cluster_swapped_attack(XA, Y):
+    """
+    Pair (0<->1, 2<->3, ...), replicate shorter label so EVERY sample is swapped.
+    Sample IDs remain the same; only A's content is replaced from partner label.
+    """
+    XA_swapped = XA.clone()
+    label_to_indices = {i: (Y == i).nonzero(as_tuple=True)[0] for i in range(10)}
+    for i in range(0, 10, 2):
+        idx_i = label_to_indices.get(i, torch.tensor([], dtype=torch.long))
+        idx_j = label_to_indices.get(i + 1, torch.tensor([], dtype=torch.long))
+        if len(idx_i) == 0 or len(idx_j) == 0: continue
+        # replicate shorter to match longer
+        if len(idx_i) >= len(idx_j): longer, shorter = idx_i, idx_j
+        else: longer, shorter = idx_j, idx_i
+        reps = (len(longer) + len(shorter) - 1) // len(shorter)
+        shorter_rep = shorter.repeat(reps)[:len(longer)]
+        if len(idx_i) >= len(idx_j):
+            XA_swapped[idx_i] = XA[shorter_rep]
+            reps_back = (len(idx_j) + len(idx_i) - 1) // len(idx_i)
+            idx_i_rep = idx_i.repeat(reps_back)[:len(idx_j)]
+            XA_swapped[idx_j] = XA[idx_i_rep]
+        else:
+            XA_swapped[idx_j] = XA[shorter_rep]
+            reps_back = (len(idx_i) + len(idx_j) - 1) // len(idx_j)
+            idx_j_rep = idx_j.repeat(reps_back)[:len(idx_i)]
+            XA_swapped[idx_i] = XA[idx_j_rep]
+    return XA_swapped
+
+# ==============================
+# DEFENSE HELPERS
+# ==============================
+
+
+
+
+# --- add near your helpers ---
+def build_fixed_stratified_batches(Y, batch_size, seed=0):
+    """
+    One-time, stratified batches that preserve global label proportions.
+    Returns a list of LongTensor indices, each of exact size batch_size.
+    Reuse this list every epoch to keep gradient direction stationary.
+    """
+    N = len(Y)
+    usable = N - (N % batch_size)
+    uniq = torch.unique(Y).tolist()
+    num_classes = int(max(uniq)) + 1 if set(uniq) == set(range(int(max(uniq))+1)) else len(uniq)
+    counts = torch.bincount(Y, minlength=num_classes).float()
+    props = counts / counts.sum().clamp_min(1)
+    # integer allocation per batch
+    raw = (props * batch_size).numpy()
+    base = np.floor(raw).astype(int)
+    deficit = batch_size - base.sum()
+    order = np.argsort(-(raw - base))   # largest fractional parts first
+    for k in range(deficit):
+        base[order[k % len(base)]] += 1  # distribute remainder
+
+    # pools per label (shuffled once)
+    rng = np.random.default_rng(seed)
+    pools = {}
+    for lbl in range(num_classes):
+        idx = (Y == lbl).nonzero(as_tuple=True)[0]
+        if len(idx) == 0:
+            pools[lbl] = torch.tensor([], dtype=torch.long)
+            continue
+        perm = torch.from_numpy(rng.permutation(len(idx))).long()
+        pools[lbl] = idx[perm]
+
+    # consume pools cyclically to create batches
+    ptr = {lbl: 0 for lbl in range(num_classes)}
+    batches = []
+    for _ in range(usable // batch_size):
+        parts = []
+        for lbl in range(num_classes):
+            need = base[lbl]
+            if need == 0 or len(pools[lbl]) == 0:
+                continue
+            s = ptr[lbl]; e = s + need
+            if e <= len(pools[lbl]):
+                take = pools[lbl][s:e]
+                ptr[lbl] = e
+            else:
+                # wrap and reshuffle on wrap to avoid periodic edges
+                part1 = pools[lbl][s:]
+                wrap = e - len(pools[lbl])
+                perm = torch.from_numpy(rng.permutation(len(pools[lbl]))).long()
+                pools[lbl] = pools[lbl][perm]
+                part2 = pools[lbl][:wrap]
+                take = torch.cat([part1, part2], 0)
+                ptr[lbl] = wrap
+            parts.append(take)
+        batch_idx = torch.cat(parts, 0)
+        # light shuffle within batch to avoid order artifacts (keeps histogram)
+        perm_b = torch.from_numpy(rng.permutation(len(batch_idx))).long()
+        batches.append(batch_idx[perm_b])
+    return batches
+
+
+# --- DRIFT-AWARE STEALTH TRAINING (keeps per-label means steady) ---
+def _cosine_warmup_alpha(step: int, total_steps: int, warmup_frac: float = 0.20, alpha_max: float = 1.0) -> float:
+    """
+    Cosine ramp for poison strength: starts ~0, smoothly reaches alpha_max after warmup.
+    Keeps early per-label mean shifts tiny so EMA baselines adapt without flags.
+    """
+    w_steps = int(max(1, warmup_frac * total_steps))
+    if step >= total_steps:
+        return alpha_max
+    if step <= w_steps:
+        # 0 -> alpha_max with a cosine warmup
+        x = step / float(w_steps)
+        return float(alpha_max * (1 - 0.5 * (1 + np.cos(np.pi * x))))
+    return float(alpha_max)
+
+def _moment_match_and_cap(z: torch.Tensor, mu0: torch.Tensor, std0: torch.Tensor,
+                          l2_q: float = 0.85) -> torch.Tensor:
+    """
+    (i) match batch moments to a fixed global baseline (mu0, std0),
+    (ii) clip per-sample L2 radius to a quantile to kill outliers that trigger drift.
+    """
+    with torch.no_grad():
+        mu_b = z.mean(0, keepdim=True)
+        std_b = z.std(0, keepdim=True) + 1e-5
+        z_mm = (z - mu_b) * (std0 / std_b) + mu0
+        target = torch.quantile(z_mm.norm(dim=1), l2_q).clamp_min(1e-6)
+        norms = z_mm.norm(dim=1, keepdim=True) + 1e-6
+        z_mm = z_mm * torch.clamp(target / norms, max=1.0)
+    return z_mm
+
+def train_drift_stealth(
+    XA_clean: torch.Tensor,
+    XA_swapped: torch.Tensor,
+    XB_train: torch.Tensor,
+    Y_train: torch.Tensor,
+    epochs: int
+) -> Tuple[nn.Module, nn.Module, nn.Module, Dict[str, Any]]:
+    """
+    Same training as train_once but with two stealth tweaks ONLY for 'per_label_drift':
+      • Poison strength alpha is cosine-warmed up across steps: xa_mix = (1-alpha)*XA_clean + alpha*XA_swapped
+      • After ClientA(), A-embeddings are moment-matched to a global clean baseline and L2-capped
+    These two keep per-label means/stats within EMA noise → drift detector rarely flags.
+    """
+    clientA, clientB = ClientA().to(DEVICE), ClientB().to(DEVICE)
+    uniq = torch.unique(Y_train).tolist()
+    num_classes = int(max(uniq)) + 1 if set(uniq) == set(range(int(max(uniq))+1)) else len(uniq) # labels must be 0..C-1
+
+    a_dim, b_dim, in_dim = _view_dims(XA_clean[0], XB_train[0])
+    serverC = ServerC(in_dim=in_dim, n_classes=num_classes).to(DEVICE)
+
+    opt = torch.optim.Adam(
+        list(clientA.parameters()) + list(clientB.parameters()) + list(serverC.parameters()),
+        lr=1e-3
+    )
+    loss_fn = nn.CrossEntropyLoss()
+
+    N = len(Y_train)
+    usable = N - (N % BATCH_SIZE)
+
+    # Use fixed, stratified batches to stabilize per-label composition
+    fixed_batches = build_fixed_stratified_batches(Y_train[:usable], BATCH_SIZE, seed=SEED)
+
+    # Move tensors once
+    XA_clean_dev  = XA_clean[:usable].to(DEVICE)
+    XA_swap_dev   = XA_swapped[:usable].to(DEVICE)
+    XB_train_dev  = XB_train[:usable].to(DEVICE)
+    Y_train_dev   = Y_train[:usable].to(DEVICE)
+
+    # Build a GLOBAL clean baseline (mu0, std0) from ClientA on clean A
+    with torch.no_grad():
+        clientA.eval()
+        Z0 = []
+        bs0 = 512
+        for s in range(0, usable, bs0):
+            e = min(usable, s + bs0)
+            Z0.append(clientA(XA_clean_dev[s:e]))
+        Z0 = torch.cat(Z0, 0)
+        mu0 = Z0.mean(0, keepdim=True)
+        std0 = Z0.std(0, keepdim=True) + 1e-5
+    clientA.train()
+
+    # Per-label drift defense state (reuse your implementation)
+    defense = DEFENSES["per_label_drift"]
+    defense.reset()
+    stats = {"accepted": 0, "flagged": 0, "total": 0}
+
+    total_steps = epochs * (usable // BATCH_SIZE)
+    step = 0
+
+    for _ in range(epochs):
+        for ids in fixed_batches:
+            ids_dev = ids.to(DEVICE)
+
+            # (1) Gradually apply poison in input space (no labels used)
+            alpha = _cosine_warmup_alpha(step, total_steps, warmup_frac=0.10, alpha_max=1.0)
+            xa_mix = (1.0 - alpha) * XA_clean_dev[ids_dev] + alpha * XA_swap_dev[ids_dev]
+
+            # (2) Client embeds A and B
+            za_raw = clientA(xa_mix)                 # [B, Da]
+            zb      = clientB(XB_train_dev[ids_dev]) # [B, Db]
+
+            # (3) Stabilize A-embeddings to global baseline (keeps per-label stats tame)
+            za = _moment_match_and_cap(za_raw, mu0, std0, l2_q=0.95)
+
+
+            # Forward, loss, backward
+            y  = Y_train_dev[ids_dev]
+            out = serverC(za, zb)
+            loss = loss_fn(out, y)
+
+            opt.zero_grad()
+            loss.backward()
+
+            # Drift defense sees the *stabilized* smashed-A it was meant to monitor
+            accept, _info = defense.step(za.detach(), y)
+
+            if accept:
+                opt.step()
+                stats["accepted"] += 1
+            else:
+                stats["flagged"] += 1
+            stats["total"] += 1
+            step += 1
+
+            if PRINT_PROGRESS_EVERY and (stats["total"] % PRINT_PROGRESS_EVERY == 0):
+                print(f"[per_label_drift-stealth] step {stats['total']}: "
+                      f"{'ACCEPT' if accept else 'SKIP'}; alpha={alpha:.3f}")
+    return clientA, clientB, serverC, stats
+
+
+# --- add a training variant just for cosine-EMA defense ---
+def train_cosine_ema_stealth(
+    XA_swapped, XB_train, Y_train, epochs, defense,
+    ema_alpha=0.99, l2_quantile=0.90,
+    align_steps=2,           # 1–3 tiny inner steps
+    align_lr=5e-3,           # step size for z alignment
+    stay_close_mu=1e-2       # keep z near its EMA cache (stability)
+):
+    """
+    Cosine-EMA bypass with active gradient-direction alignment:
+      • fixed, stratified batches reused every epoch (stabilize data mix),
+      • per-sample EMA cache Z_cache (slow smashed-A drift),
+      • moment-match + per-sample L2 cap (de-jitter),
+      • micro-optimization on z to maximize cos(∇z, buffer_mean) each batch.
+    """
+    clientA, clientB = ClientA().to(DEVICE), ClientB().to(DEVICE)
+    a_dim, b_dim, in_dim = _view_dims(XA_swapped[0], XB_train[0])
+    uniq = torch.unique(Y_train).tolist()
+    num_classes = int(max(uniq)) + 1 if set(uniq) == set(range(int(max(uniq))+1)) else len(uniq)
+    serverC = ServerC(in_dim=in_dim, n_classes=num_classes).to(DEVICE)
+
+    opt = torch.optim.Adam(
+        list(clientA.parameters()) + list(clientB.parameters()) + list(serverC.parameters()),
+        lr=1e-3
+    )
+    loss_fn = nn.CrossEntropyLoss()
+
+    N = len(Y_train)
+    usable = N - (N % BATCH_SIZE)
+    fixed_batches = build_fixed_stratified_batches(Y_train[:usable], BATCH_SIZE, seed=SEED)
+
+    # move training tensors once
+    XA_swapped_dev = XA_swapped[:usable].to(DEVICE)
+    XB_train_dev   = XB_train[:usable].to(DEVICE)
+    Y_train_dev    = Y_train[:usable].to(DEVICE)
+
+    feat_dim = a_dim
+    # init per-sample EMA cache on DEVICE
+    with torch.no_grad():
+        clientA.eval()
+        Z_cache = torch.empty(usable, feat_dim, device=DEVICE)
+        bs0 = 512
+        for s in range(0, usable, bs0):
+            e = min(usable, s + bs0)
+            xa_init = clientA(XA_swapped_dev[s:e])
+            Z_cache[s:e] = xa_init
+        mu0 = Z_cache.mean(0)
+        std0 = Z_cache.std(0) + 1e-5
+    clientA.train()
+
+    defense.reset()
+    stats = {"accepted": 0, "flagged": 0, "total": 0}
+
+    # helper: get current buffer mean direction (what gate uses)
+    def _buffer_mean():
+        if len(defense.buffer) < defense.buffer.maxlen:
+            # not yet filled: use the mean of whatever is there
+            if len(defense.buffer) == 0:
+                return None
+            return torch.stack(list(defense.buffer), 0).mean(0)
+        return torch.stack(list(defense.buffer), 0).mean(0)
+
+    for _ in range(epochs):
+        for ids in fixed_batches:
+            ids_dev = ids.to(DEVICE)
+
+            # 1) update EMA cache slowly with fresh poisoned smashed features
+            with torch.no_grad():
+                xa_poison = clientA(XA_swapped_dev[ids_dev])  # [B, D]
+                Z_cache[ids_dev] = ema_alpha * Z_cache[ids_dev] + (1.0 - ema_alpha) * xa_poison
+
+                # 2) moment-match to global baseline (mu0/std0) + per-sample L2 cap
+                z0 = Z_cache[ids_dev]                      # base (no-grad tensor)
+                mu_b = z0.mean(0, keepdim=True)
+                std_b = z0.std(0, keepdim=True) + 1e-5
+                z_mm = (z0 - mu_b) * (std0 / std_b) + mu0
+                target = torch.quantile(z0.norm(dim=1), l2_quantile).clamp_min(1e-6)
+                norms = z_mm.norm(dim=1, keepdim=True) + 1e-6
+                z_mm = z_mm * torch.clamp(target / norms, max=1.0)
+
+            # 3) gradient-direction alignment (tiny inner loop on z)
+            # start near the stabilized z_mm but allow grad-through-z
+            z = z_mm.clone().detach().requires_grad_(True)
+            xb = clientB(XB_train_dev[ids_dev]).detach()  # xb fixed for alignment steps
+            y  = Y_train_dev[ids_dev]
+
+            for _it in range(align_steps):
+                # compute g(z) = d loss / d z   with graph for double-backprop
+                out = serverC(z, xb)
+                loss = loss_fn(out, y)
+                g = torch.autograd.grad(loss, z, create_graph=True)[0]   # [B, D]
+                gvec = g.reshape(-1)
+
+                buf = _buffer_mean()
+                if buf is None:
+                    # early fill phase: no need to align, break
+                    break
+                # normalize both to avoid scale effects
+                gv = gvec / (gvec.norm() + 1e-8)
+                bv = (buf / (buf.norm() + 1e-8)).detach()
+
+                cosval = (gv * bv).sum()
+                # objective: maximize cosval, stay close to z_mm
+                J = -cosval + stay_close_mu * (z - z_mm.detach()).pow(2).mean()
+                J.backward()
+                with torch.no_grad():
+                    z -= align_lr * z.grad
+                    z.grad.zero_()
+
+            # 4) final forward/backward for the defense + update
+            xa_leaf = z.detach().requires_grad_(True)
+            xa_leaf.retain_grad()
+            out = serverC(xa_leaf, clientB(XB_train_dev[ids_dev]))
+            loss = loss_fn(out, y)
+
+            opt.zero_grad()
+            loss.backward()
+
+            g_final = xa_leaf.grad.detach().reshape(-1)
+            accept, _ = defense.step(g_final)
+            if accept:
+                opt.step()
+                stats["accepted"] += 1
+            else:
+                stats["flagged"] += 1
+            stats["total"] += 1
+
+    return clientA, clientB, serverC, stats
+
+
+def train_cross_consistency_stealth(
+    XA_swapped: torch.Tensor,
+    XB_train: torch.Tensor,
+    Y_train: torch.Tensor,
+    epochs: int,
+    defense: "CrossPartyConsistencyDefense",
+    mm_l2_q: float = 0.90,
+    align_steps: int = 2,
+    align_lr: float = 5e-3
+):
+    """
+    Stealth path for cross_party_consistency:
+      1) Compute g_b (grad wrt xb) with a probe backward.
+      2) Optimize z (smashed-A) for a couple micro-steps to maximize cos(∇z, g_b).
+      3) Moment-match + L2-cap to avoid other detectors.
+    """
+    clientA, clientB = ClientA().to(DEVICE), ClientB().to(DEVICE)
+    a_dim, b_dim, in_dim = _view_dims(XA_swapped[0], XB_train[0])
+    uniq = torch.unique(Y_train).tolist()
+    num_classes = int(max(uniq)) + 1 if set(uniq) == set(range(int(max(uniq))+1)) else len(uniq)
+    serverC = ServerC(in_dim=in_dim, n_classes=num_classes).to(DEVICE)
+
+    opt = torch.optim.Adam(
+        list(clientA.parameters()) + list(clientB.parameters()) + list(serverC.parameters()), lr=1e-3
+    )
+    loss_fn = nn.CrossEntropyLoss()
+
+    N = len(Y_train); usable = N - (N % BATCH_SIZE)
+    fixed_batches = build_fixed_stratified_batches(Y_train[:usable], BATCH_SIZE, seed=SEED)
+
+    XA_swapped_dev = XA_swapped[:usable].to(DEVICE)
+    XB_train_dev   = XB_train[:usable].to(DEVICE)
+    Y_train_dev    = Y_train[:usable].to(DEVICE)
+
+    # global baseline for moment matching, computed on swapped as reference
+    with torch.no_grad():
+        clientA.eval()
+        Z0 = []
+        bs0 = 512
+        for s in range(0, usable, bs0):
+            e = min(usable, s + bs0)
+            Z0.append(clientA(XA_swapped_dev[s:e]))
+        Z0 = torch.cat(Z0, 0)
+        mu0 = Z0.mean(0, keepdim=True)
+        std0 = Z0.std(0, keepdim=True) + 1e-5
+    clientA.train()
+
+    defense.reset()
+    stats = {"accepted": 0, "flagged": 0, "total": 0}
+
+    for _ in range(epochs):
+        for ids in fixed_batches:
+            ids_dev = ids.to(DEVICE)
+            xA = XA_swapped_dev[ids_dev]
+            xB = XB_train_dev[ids_dev]
+            y  = Y_train_dev[ids_dev]
+
+            # --- probe pass to get g_b (gradient wrt xb) ---
+            za_probe = clientA(xA).detach().requires_grad_(True); za_probe.retain_grad()
+            xb_probe = clientB(xB).detach().requires_grad_(True); xb_probe.retain_grad()
+            out_probe = serverC(za_probe, xb_probe)
+            loss_probe = loss_fn(out_probe, y)
+            serverC.zero_grad(set_to_none=True)
+            clientA.zero_grad(set_to_none=True)
+            clientB.zero_grad(set_to_none=True)
+            loss_probe.backward(retain_graph=False)
+            g_b = xb_probe.grad.detach().reshape(-1)  # target direction snapshot
+
+            # --- optimize z to align ∇z with g_b ---
+            z = clientA(xA).detach().requires_grad_(True)
+            for _it in range(align_steps):
+                out = serverC(z, clientB(xB).detach())
+                loss = loss_fn(out, y)
+                g = torch.autograd.grad(loss, z, create_graph=True)[0].reshape(-1)  # ∇z
+                # normalize both
+                gv = g / (g.norm() + 1e-8)
+                bv = g_b / (g_b.norm() + 1e-8)
+                J = - (gv * bv).sum()
+                J.backward()
+                with torch.no_grad():
+                    z -= align_lr * z.grad
+                    z.grad.zero_()
+
+            # --- moment-match and cap to stay within typical stats ---
+            z_mm = _moment_match_and_cap(z.detach(), mu0, std0, l2_q=mm_l2_q)
+
+            # final pass used by the defense and to update params
+            z_leaf = z_mm.clone().detach().requires_grad_(True); z_leaf.retain_grad()
+            out_final = serverC(z_leaf, clientB(xB))
+            loss_final = loss_fn(out_final, y)
+
+            opt.zero_grad(set_to_none=True)
+            loss_final.backward()
+
+            gxa = z_leaf.grad.detach()
+            gxb = clientB(xB).detach().requires_grad_(True)
+            # NOTE: we already have grads on xb from the backward above
+            # grab current xb grad without extra compute:
+            params = [p for p in serverC.parameters()] + [p for p in clientA.parameters()] + [p for p in clientB.parameters()]
+
+            # The defense uses the grads that were just produced on the leaves:
+            # xb leaf grad is available via autograd graph; to read it:
+            xb_leaf = clientB(xB).detach().requires_grad_(True)
+            out_chk = serverC(z_leaf.detach(), xb_leaf)
+            loss_chk = loss_fn(out_chk, y)
+            loss_chk.backward()
+            gxb_final = xb_leaf.grad.detach()
+
+            accept, _ = defense.step(gxa, gxb_final)
+            if accept:
+                opt.step()
+                stats["accepted"] += 1
+            else:
+                stats["flagged"] += 1
+            stats["total"] += 1
+
+    return clientA, clientB, serverC, stats
+
+
+
+def _cos(a, b):  # a,b 1D tensors
+    return F.cosine_similarity(a.unsqueeze(0), b.unsqueeze(0)).item()
+
+class CosineEMADefense:
+    """Temporal gradient-similarity gate on smashed A: skip if cos(g, ema) < thresh."""
+    def __init__(self, thresh=COS_EMA_THRESH, buf=COS_EMA_BUF):
+        self.thresh = thresh
+        self.buf = buf
+        self.buffer = deque(maxlen=buf)
+    def reset(self): self.buffer.clear()
+    def step(self, gvec: torch.Tensor) -> Tuple[bool, Dict[str, Any]]:
+        if len(self.buffer) < self.buffer.maxlen:
+            self.buffer.append(gvec)
+            return True, {"sim": None}  # accept while filling
+        avg = torch.stack(list(self.buffer), 0).mean(0)
+        sim = _cos(gvec, avg)
+        if sim >= self.thresh:
+            self.buffer.append(gvec)
+            return True, {"sim": sim}
+        else:
+            return False, {"sim": sim}
+
+class GradNormClipDefense:
+    """Clip total param grad norm to GRAD_NORM_MAX; count a 'flag' if clipping applied."""
+    def __init__(self, max_norm=GRAD_NORM_MAX): self.max_norm = max_norm
+    def reset(self): pass
+    def step(self, params) -> Tuple[bool, Dict[str, Any]]:
+        total_norm = torch.norm(torch.stack([p.grad.detach().norm()
+                            for p in params if p.grad is not None]))
+        clipped = False
+        if total_norm > self.max_norm:
+            nn.utils.clip_grad_norm_(params, self.max_norm)
+            clipped = True
+        return True, {"pre_clip_norm": total_norm.item(), "clipped": clipped}
+
+class PerLabelDriftDefense:
+    """
+    Track per-label EMA of smashed-A mean and std. For each label present >= DRIFT_MIN_SAMPLES,
+    compute standardized mean shift L2; skip if > threshold.
+    """
+    def __init__(self, z_thr=DRIFT_Z_THR, ema_m=DRIFT_EMA_M, min_n=DRIFT_MIN_SAMPLES):
+        self.z_thr = z_thr; self.ema_m = ema_m; self.min_n = min_n
+        self.mu: Dict[int, torch.Tensor] = {}
+        self.sigma: Dict[int, torch.Tensor] = {}
+    def reset(self): self.mu.clear(); self.sigma.clear()
+    def step(self, xa_batch: torch.Tensor, y_batch: torch.Tensor) -> Tuple[bool, Dict[str, Any]]:
+        # xa_batch: [B, D]
+        flags = []
+        D = xa_batch.shape[1]
+        for lbl in torch.unique(y_batch).tolist():
+            idx = (y_batch == lbl).nonzero(as_tuple=True)[0]
+            if len(idx) < self.min_n:  # not enough samples to assess
+                continue
+            x = xa_batch[idx]
+            m = x.mean(0).detach()
+            s = x.std(0).detach() + 1e-5
+            if lbl not in self.mu:
+                self.mu[lbl] = m
+                self.sigma[lbl] = s
+                continue
+            # standardized mean shift (L2)
+            z = ((m - self.mu[lbl]) / self.sigma[lbl]).pow(2).sum().sqrt().item()
+            flags.append(z > self.z_thr)
+            # update EMA baselines with current batch stats
+            self.mu[lbl] = self.ema_m * self.mu[lbl] + (1 - self.ema_m) * m
+            self.sigma[lbl] = self.ema_m * self.sigma[lbl] + (1 - self.ema_m) * s
+        flag = any(flags) if len(flags) > 0 else False
+        return (not flag), {"flagged_labels": int(sum(flags)) if flags else 0}
+
+class CrossPartyConsistencyDefense:
+    """Skip if cos(∇xa, ∇xb) < threshold (systematic A/B disagreement)."""
+    def __init__(self, thresh=CONSIST_COS_THR): self.thresh = thresh
+    def reset(self): pass
+    def step(self, gxa: torch.Tensor, gxb: torch.Tensor) -> Tuple[bool, Dict[str, Any]]:
+        # flatten
+        a = gxa.view(-1); b = gxb.view(-1)
+        sim = _cos(a, b)
+        return (sim >= self.thresh), {"ab_cos": sim}
+
+class TinyAE(nn.Module):
+    def __init__(self, in_dim: int, hid=AE_HID):
+        super().__init__()
+        self.enc = nn.Sequential(
+            nn.Linear(in_dim, 256), nn.ReLU(),
+            nn.Linear(256, hid), nn.ReLU()
+        )
+        self.dec = nn.Sequential(
+            nn.Linear(hid, 256), nn.ReLU(),
+            nn.Linear(256, in_dim)
+        )
+    def forward(self, x):  # x: [B, D]
+        z = self.enc(x); y = self.dec(z); return y
+
+
+class AEAnomalyDefense:
+    def __init__(self, warmup=AE_WARMUP_STEPS, ksig=AE_FLAG_KSIGMA, lr=AE_LR, ema_mu=AE_EMA_MU, ema_sig=AE_EMA_SIG):
+        self.warm = warmup; self.ksig = ksig; self.lr = lr; self.ema_mu = ema_mu; self.ema_sig = ema_sig
+        self.ae = None
+        self.opt = None
+        self.in_dim = None
+        self.step_count = 0
+        self.err_mu = None; self.err_sig = None
+        self.mse = nn.MSELoss(reduction='none')
+
+    def _ensure_init(self, in_dim: int):
+        if (self.ae is None) or (self.in_dim != in_dim):
+            self.in_dim = in_dim
+            self.ae = TinyAE(in_dim=self.in_dim).to(DEVICE)
+            self.opt = torch.optim.Adam(self.ae.parameters(), lr=self.lr)
+            self.step_count = 0
+            self.err_mu = None; self.err_sig = None
+
+    def reset(self):
+        self.ae = None
+        self.opt = None
+        self.in_dim = None
+        self.step_count = 0
+        self.err_mu = None; self.err_sig = None
+
+    def step(self, xa_batch: torch.Tensor) -> Tuple[bool, Dict[str, Any]]:
+        self._ensure_init(xa_batch.shape[1])
+        self.step_count += 1
+        with torch.enable_grad():
+            self.ae.train(True)
+            self.opt.zero_grad()
+            recon = self.ae(xa_batch)
+            loss_vec = self.mse(recon, xa_batch).mean(dim=1)  # per-sample
+            loss = loss_vec.mean()
+            if self.step_count <= self.warm:
+                loss.backward(); self.opt.step()
+                return True, {"phase": "warmup", "recon_mean": loss.item()}
+            loss.backward(); self.opt.step()
+        with torch.no_grad():
+            err = loss_vec.mean().item()
+            if self.err_mu is None:
+                self.err_mu = err; self.err_sig = 1e-6
+            else:
+                self.err_mu = self.ema_mu * self.err_mu + (1 - self.ema_mu) * err
+                self.err_sig = self.ema_sig * self.err_sig + (1 - self.ema_sig) * abs(err - self.err_mu)
+            thresh = self.err_mu + self.ksig * (self.err_sig + 1e-6)
+            accept = (err <= thresh)
+            return accept, {"phase": "detect", "recon_mean": err, "thresh": thresh}
+
+
+# Registry to pick defenses by name
+DEFENSES = {
+    "none": None,
+    "cosine_ema": CosineEMADefense(COS_EMA_THRESH, COS_EMA_BUF),
+    "grad_norm_clip": GradNormClipDefense(GRAD_NORM_MAX),
+    "per_label_drift": PerLabelDriftDefense(DRIFT_Z_THR, DRIFT_EMA_M),
+    "cross_party_consistency": CrossPartyConsistencyDefense(CONSIST_COS_THR),
+    "ae_anomaly": AEAnomalyDefense(AE_WARMUP_STEPS, AE_FLAG_KSIGMA, AE_LR, AE_EMA_MU, AE_EMA_SIG),
+}
+
+# ==============================
+# TRAIN / EVAL
+# ==============================
+def train_once(XA_train, XB_train, Y_train, defense_name="none", epochs=EPOCHS) -> Tuple[nn.Module, nn.Module, nn.Module, Dict[str, Any]]:
+    """Train with given defense; attack is ON via swapped XA passed as input."""
+    clientA, clientB = ClientA().to(DEVICE), ClientB().to(DEVICE)
+    # compute dims from one sample
+    a_dim, b_dim, in_dim = _view_dims(XA_train[0], XB_train[0])
+    uniq = torch.unique(Y_train).tolist()
+    num_classes = int(max(uniq)) + 1 if set(uniq) == set(range(int(max(uniq))+1)) else len(uniq)
+    serverC = ServerC(in_dim=in_dim, n_classes=num_classes).to(DEVICE)
+
+    opt = torch.optim.Adam(list(clientA.parameters()) + list(clientB.parameters()) + list(serverC.parameters()), lr=1e-3)
+    loss_fn = nn.CrossEntropyLoss()
+
+    N = len(Y_train); usable = N - (N % BATCH_SIZE)
+
+    # defense state
+    defense = DEFENSES[defense_name]
+    if defense is not None:
+        defense.reset()
+    stats = {"accepted": 0, "flagged": 0, "total": 0}
+
+    for epoch in range(epochs):
+        perm = torch.randperm(N)
+        XA_train = XA_train[perm]; XB_train = XB_train[perm]; Y_train = Y_train[perm]
+
+        for s in range(0, usable, BATCH_SIZE):
+            e = s + BATCH_SIZE
+            xa_input = XA_train[s:e].to(DEVICE)  # already swapped (poisoned A)
+            xb_input = XB_train[s:e].to(DEVICE)
+            y = Y_train[s:e].to(DEVICE)
+
+            xa = clientA(xa_input)
+            xb = clientB(xb_input)
+
+            do_defense = defense_name != "none"
+
+            # build leaf vars for grad-based checks (will block client param grads; matches your prior defense pattern)
+            if do_defense:
+                xa_leaf = xa.detach().requires_grad_(True); xa_leaf.retain_grad()
+                xb_leaf = xb.detach().requires_grad_(True); xb_leaf.retain_grad()
+                out = serverC(xa_leaf, xb_leaf)
+            else:
+                out = serverC(xa, xb)
+
+            loss = loss_fn(out, y)
+            opt.zero_grad()
+            loss.backward()
+
+            accept = True
+            info = {}
+
+            if defense_name == "cosine_ema":
+                g = xa_leaf.grad.detach().view(-1)
+                accept, info = defense.step(g)
+
+            elif defense_name == "grad_norm_clip":
+                # Clip total param grad norm; always accept; flag if clipped.
+                accept, info = defense.step([p for p in serverC.parameters()] +
+                                            [p for p in clientA.parameters()] +
+                                            [p for p in clientB.parameters()])
+
+            elif defense_name == "per_label_drift":
+                with torch.no_grad():
+                    # use smashed-A features (pre-leaf) for stats; shape [B, D]
+                    xa_feats = xa.detach()
+                accept, info = defense.step(xa_feats, y)
+
+            elif defense_name == "cross_party_consistency":
+                gxa = xa_leaf.grad.detach()
+                gxb = xb_leaf.grad.detach()
+                accept, info = defense.step(gxa, gxb)
+
+            elif defense_name == "ae_anomaly":
+                with torch.no_grad():
+                    xa_feats = xa.detach()
+                accept, info = defense.step(xa_feats)
+
+            # step or skip
+            if accept:
+                opt.step()
+                stats["accepted"] += 1
+            else:
+                stats["flagged"] += 1
+            stats["total"] += 1
+
+            if PRINT_PROGRESS_EVERY and (stats["total"] % PRINT_PROGRESS_EVERY == 0):
+                print(f"[{defense_name}] step {stats['total']}: "
+                      f"{'ACCEPT' if accept else 'SKIP'}; info={info}")
+
+    return clientA, clientB, serverC, stats
+
+@torch.no_grad()
+def evaluate(clientA, clientB, serverC, XA_test, XB_test, Y_test) -> float:
+    clientA.eval(); clientB.eval(); serverC.eval()
+    correct = 0; N = len(Y_test); bs = 100
+    for i in range(0, N, bs):
+        xa = clientA(XA_test[i:i+bs].to(DEVICE))   # CLEAN A at eval
+        xb = clientB(XB_test[i:i+bs].to(DEVICE))
+        out = serverC(xa, xb)
+        pred = out.argmax(1)
+        correct += (pred == Y_test[i:i+bs].to(DEVICE)).sum().item()
+    return correct / N
+
+# ==============================
+# MAIN EXPERIMENT
+# ==============================
+dataset_map = {
+    'MNIST': datasets.MNIST,
+    'FashionMNIST': datasets.FashionMNIST,
+    'KMNIST': datasets.KMNIST,
+    'CIFAR10': datasets.CIFAR10,
+}
+
+DEFENSE_ORDER = [
+    ("none", "No Defense"),
+    ("cosine_ema", "Temporal Cosine-EMA Gate"),
+    ("grad_norm_clip", "Grad-Norm Clipping (detect-only)"),
+    ("per_label_drift", "Per-Label Smashed-A Drift"),
+    ("cross_party_consistency", "Cross-Party Gradient Consistency"),
+    ("ae_anomaly", "AE Anomaly on Smashed-A (warm-up)"),
+]
+
+
+
+for dataset_name in DATASETS:
+    print("=====================================================")
+    print(f"Dataset: {dataset_name}")
+    X_np, y_np = get_dataset(dataset_name)  # from datasets.py
+    XA_all_loaded, XB_all_loaded, Y_all_loaded = _to_XA_XB_Y_from_numpy(X_np, y_np)
+
+    # To keep your existing unified 85/15 logic working uniformly,
+    # return an "empty test" so concatenation doesn't double-count.
+    # Use the whole loaded set, then make a real train/test split
+    XA_all, XB_all, Y_all = XA_all_loaded, XB_all_loaded, Y_all_loaded
+    N = len(Y_all)
+
+    # ensure we have at least 1 test sample
+    n_train_req = min(TRAIN_SAMPLES, max(1, N - 1))
+    n_test_req  = min(TEST_SAMPLES, max(1, N - n_train_req))
+
+    # (optional) reproducible shuffle before slicing
+    # (optional) reproducible shuffle before slicing
+    g = torch.Generator().manual_seed(SEED)
+    perm = torch.randperm(N, generator=g)
+
+    train_idx = perm[:n_train_req]
+    test_idx  = perm[n_train_req:n_train_req + n_test_req]
+
+    XA_all = XA_all[perm]; XB_all = XB_all[perm]; Y_all = Y_all[perm]
+
+
+    XA_train_clean, XB_train, Y_train = (
+        XA_all[:n_train_req], XB_all[:n_train_req], Y_all[:n_train_req]
+    )
+    XA_test, XB_test, Y_test = (
+        XA_all[n_train_req:n_train_req + n_test_req],
+        XB_all[n_train_req:n_train_req + n_test_req],
+        Y_all[n_train_req:n_train_req + n_test_req],
+    )
+
+    # Clean (no attack, no defense) – single reference number
+    cleanA, cleanB, cleanC, _ = train_once(XA_train_clean, XB_train, Y_train, defense_name="none", epochs=EPOCHS)
+    acc_clean = evaluate(cleanA, cleanB, cleanC, XA_test, XB_test, Y_test)
+    print(f"[CLEAN] Accuracy: {acc_clean*100:.2f}%")
+
+    # ---------- Build swapped-A for both modes ----------
+    XA_sw_pred, note_pred = make_swapped_XA(dataset_name, XA_train_clean, Y_train, mode="pred", select_idx=train_idx)
+    XA_sw_gt,   note_gt   = make_swapped_XA(dataset_name, XA_train_clean, Y_train, mode="gt",   select_idx=train_idx)
+
+    print(note_pred)
+    print(note_gt)
+
+    # ---------- Run suites with identical logic & collect full metrics ----------
+    print("\n[ATTACK] Running defense suite with PREDICTED clusters...")
+    res_pred = run_defense_suite_once(
+        dataset_name, XA_sw_pred, XB_train, Y_train,
+        XA_test, XB_test, Y_test, EPOCHS, SEED, XA_clean_train=XA_train_clean
+    )
+
+    print("[ATTACK] Running defense suite with GROUND-TRUTH clusters...")
+    res_gt = run_defense_suite_once(
+        dataset_name, XA_sw_gt, XB_train, Y_train,
+        XA_test, XB_test, Y_test, EPOCHS, SEED, XA_clean_train=XA_train_clean
+    )
+
+    # ---------- Pretty print ----------
+    pretty_print_suite("Predicted Clusters", res_pred)
+    pretty_print_suite("Ground-Truth Clusters", res_gt)
+    pretty_print_compare("Predicted", res_pred, "GroundTruth", res_gt)
+    print()  # spacer
