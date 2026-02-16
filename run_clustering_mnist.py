@@ -856,6 +856,13 @@ os.makedirs("./clusters", exist_ok=True)
 
 dataset_name = DATASET_NAME  # Use argument value
 
+# Save final encoder
+torch.save(enc.state_dict(), "./clusters/MNIST_encoder.pth")
+
+# Save clean embeddings BEFORE swap
+np.save("./clusters/MNIST_embeddings.npy", Z_ref.astype(np.float32))
+
+
 # 1) required
 np.save(f"./clusters/{dataset_name}_ids.npy", ids_final.astype(np.int64))
 np.save(f"./clusters/{dataset_name}_conf.npy", conf_final.astype(np.float32))

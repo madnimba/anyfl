@@ -1247,10 +1247,134 @@ def _make_clean_z_stream(clientA, XA_clean, batch=128, steps=800):
     return out
 
 
+# for dataset_name in DATASETS:
+#     print("=====================================================")
+#     print(f"Dataset: {dataset_name}")
+#     (XA_tr_full, XB_tr_full, Y_tr_full), (XA_te_full, XB_te_full, Y_te_full) = load_dataset(dataset_map[dataset_name])
+
+#     XA_train_clean = XA_tr_full[:TRAIN_SAMPLES]
+#     XB_train       = XB_tr_full[:TRAIN_SAMPLES]
+#     Y_train        = Y_tr_full[:TRAIN_SAMPLES]
+#     XA_test        = XA_te_full[:TEST_SAMPLES]
+#     XB_test        = XB_te_full[:TEST_SAMPLES]
+#     Y_test         = Y_te_full[:TEST_SAMPLES]
+
+#     # Clean reference
+#     cleanA, cleanB, cleanC, _ = train_once(XA_train_clean, XB_train, Y_train, defense_name="none", epochs=EPOCHS)
+#     acc_clean = evaluate(cleanA, cleanB, cleanC, XA_test, XB_test, Y_test)
+#     print(f"[CLEAN] Accuracy: {acc_clean*100:.2f}%")
+
+
+
+#     # After computing acc_clean and before running suites:
+#     frozen_ae_def = DEFENSES["frozen_ae"]
+#     frozen_ae_def.reset()
+#     # Use the *clean* ClientA to produce smashed-A:
+#     clean_z_stream = _make_clean_z_stream(cleanA, XA_train_clean)
+#     frozen_ae_def._ensure(in_dim=clean_z_stream[0].shape[1])
+#     frozen_ae_def.pretrain_on_clean_stream(clean_z_stream)
+
+
+#     # Your predicted/GT cluster swap (pixel-level) for comparison
+#     XA_sw_pred, note_pred = make_swapped_XA(dataset_name, XA_train_clean, Y_train, mode="pred")
+#     XA_sw_gt,   note_gt   = make_swapped_XA(dataset_name, XA_train_clean, Y_train, mode="gt")
+#     print(note_pred); print(note_gt)
+
+#     # --- Run & report: our attack (predicted swap) ---
+#     print("\n[ATTACK] Running defense suite: OURS (Predicted cluster swap)")
+#     res_ours = run_defense_suite_once(
+#         dataset_name, attack_mode="ours_pred_swap",
+#         XA_clean_train=XA_train_clean,
+#         XA_input_for_train=XA_sw_pred,  # swapped pixels
+#         XB_train=XB_train, Y_train=Y_train,
+#         XA_test=XA_test, XB_test=XB_test, Y_test=Y_test,
+#         epochs=EPOCHS, seed=SEED
+#     )
+
+#     # --- Run & report: three embedding-side baseline attacks on CLEAN XA ---
+#     all_results = [("OURS-PredSwap", res_ours)]
+
+#     for mode in ["signflip", "samevalue", "gaussian"]:
+#         print(f"\n[ATTACK] Running defense suite: {mode.upper()} (embedding-side)")
+#         res = run_defense_suite_once(
+#             dataset_name, attack_mode=mode,
+#             XA_clean_train=XA_train_clean,              # CLEAN left half used for z hook
+#             XA_input_for_train=XA_train_clean,          # not used by z_hook path
+#             XB_train=XB_train, Y_train=Y_train,
+#             XA_test=XA_test, XB_test=XB_test, Y_test=Y_test,
+#             epochs=EPOCHS, seed=SEED
+#         )
+#         all_results.append((mode.upper(), res))
+
+#     # --- Pretty print per-attack suites ---
+#     for name, suite in all_results:
+#         pretty_print_suite(name, suite)
+
+#     # --- Optional pairwise comparison (OURS vs each baseline) ---
+#     for name, suite in all_results[1:]:
+#         pretty_print_compare("OURS", res_ours, name, suite)
+
+#     print()  # spacer
+
+
+# ============================================================
+# SENSITIVITY ANALYSIS: VARY TOP-K FOR OUR ATTACK (NO DEFENSE)
+# ============================================================
+
+def run_attack_no_defense_single_k(dataset_name, XA_train_clean, XB_train, Y_train,
+                                   XA_test, XB_test, Y_test, k_val):
+    """
+    Runs only your predicted-cluster swap attack with a chosen top-k.
+    No defenses, no baselines, nothing else.
+    """
+    # --- Load predicted clusters ---
+    cluster_info = load_cluster_info(dataset_name, len(Y_train))
+    if cluster_info is None:
+        raise ValueError("No predicted clusters found in ./clusters/")
+
+    # --- Infer top-k farthest clusters with this k ---
+    topk = _infer_topk_targets(dataset_name, XA_train_clean,
+                               cluster_info["ids"], k=k_val)
+
+    # --- Generate swapped XA using your attack ---
+    XA_sw = generate_cluster_swapped_attack_topk(
+        XA_train_clean,
+        cluster_info["ids"],
+        topk_map=topk,
+        conf=cluster_info.get("conf", None),
+        core_q=0.60,
+        seed=SEED
+    )
+
+    # --- Train once with no-defense ---
+    A, B, C, _ = train_once(
+        XA_sw,
+        XB_train,
+        Y_train,
+        defense_name="none",
+        epochs=EPOCHS
+    )
+
+    # --- Evaluate ---
+    acc = evaluate(A, B, C, XA_test, XB_test, Y_test)
+    return acc
+
+
+# ============================================================
+# RUN SENSITIVITY EXPERIMENT FOR A LIST OF k VALUES
+# ============================================================
+K_VALUES = [1, 2, 3, 5, 7]
+
+print("\n========================================")
+print(" TOP-K SWAP SENSITIVITY ANALYSIS (NO DEFENSE)")
+print("========================================\n")
+
 for dataset_name in DATASETS:
-    print("=====================================================")
-    print(f"Dataset: {dataset_name}")
-    (XA_tr_full, XB_tr_full, Y_tr_full), (XA_te_full, XB_te_full, Y_te_full) = load_dataset(dataset_map[dataset_name])
+    print(f"Dataset = {dataset_name}")
+
+    # --- Load the dataset ---
+    (XA_tr_full, XB_tr_full, Y_tr_full), (XA_te_full, XB_te_full, Y_te_full) = \
+        load_dataset(dataset_map[dataset_name])
 
     XA_train_clean = XA_tr_full[:TRAIN_SAMPLES]
     XB_train       = XB_tr_full[:TRAIN_SAMPLES]
@@ -1259,59 +1383,24 @@ for dataset_name in DATASETS:
     XB_test        = XB_te_full[:TEST_SAMPLES]
     Y_test         = Y_te_full[:TEST_SAMPLES]
 
-    # Clean reference
-    cleanA, cleanB, cleanC, _ = train_once(XA_train_clean, XB_train, Y_train, defense_name="none", epochs=EPOCHS)
-    acc_clean = evaluate(cleanA, cleanB, cleanC, XA_test, XB_test, Y_test)
-    print(f"[CLEAN] Accuracy: {acc_clean*100:.2f}%")
-
-
-
-    # After computing acc_clean and before running suites:
-    frozen_ae_def = DEFENSES["frozen_ae"]
-    frozen_ae_def.reset()
-    # Use the *clean* ClientA to produce smashed-A:
-    clean_z_stream = _make_clean_z_stream(cleanA, XA_train_clean)
-    frozen_ae_def._ensure(in_dim=clean_z_stream[0].shape[1])
-    frozen_ae_def.pretrain_on_clean_stream(clean_z_stream)
-
-
-    # Your predicted/GT cluster swap (pixel-level) for comparison
-    XA_sw_pred, note_pred = make_swapped_XA(dataset_name, XA_train_clean, Y_train, mode="pred")
-    XA_sw_gt,   note_gt   = make_swapped_XA(dataset_name, XA_train_clean, Y_train, mode="gt")
-    print(note_pred); print(note_gt)
-
-    # --- Run & report: our attack (predicted swap) ---
-    print("\n[ATTACK] Running defense suite: OURS (Predicted cluster swap)")
-    res_ours = run_defense_suite_once(
-        dataset_name, attack_mode="ours_pred_swap",
-        XA_clean_train=XA_train_clean,
-        XA_input_for_train=XA_sw_pred,  # swapped pixels
-        XB_train=XB_train, Y_train=Y_train,
-        XA_test=XA_test, XB_test=XB_test, Y_test=Y_test,
-        epochs=EPOCHS, seed=SEED
+    # --- Clean reference accuracy ---
+    cleanA, cleanB, cleanC, _ = train_once(
+        XA_train_clean, XB_train, Y_train, defense_name="none", epochs=EPOCHS
     )
+    acc_clean = evaluate(cleanA, cleanB, cleanC, XA_test, XB_test, Y_test)
+    print(f"Clean accuracy: {acc_clean*100:.2f}%\n")
 
-    # --- Run & report: three embedding-side baseline attacks on CLEAN XA ---
-    all_results = [("OURS-PredSwap", res_ours)]
+    print("k  | Attack Accuracy (%) | Drop (ppt)")
+    print("--------------------------------------")
 
-    for mode in ["signflip", "samevalue", "gaussian"]:
-        print(f"\n[ATTACK] Running defense suite: {mode.upper()} (embedding-side)")
-        res = run_defense_suite_once(
-            dataset_name, attack_mode=mode,
-            XA_clean_train=XA_train_clean,              # CLEAN left half used for z hook
-            XA_input_for_train=XA_train_clean,          # not used by z_hook path
-            XB_train=XB_train, Y_train=Y_train,
-            XA_test=XA_test, XB_test=XB_test, Y_test=Y_test,
-            epochs=EPOCHS, seed=SEED
+    for k_val in K_VALUES:
+        acc_k = run_attack_no_defense_single_k(
+            dataset_name,
+            XA_train_clean, XB_train, Y_train,
+            XA_test, XB_test, Y_test,
+            k_val
         )
-        all_results.append((mode.upper(), res))
+        drop = (acc_clean - acc_k) * 100
+        print(f"{k_val:<2} | {acc_k*100:>8.2f}%         | -{drop:.2f}")
 
-    # --- Pretty print per-attack suites ---
-    for name, suite in all_results:
-        pretty_print_suite(name, suite)
-
-    # --- Optional pairwise comparison (OURS vs each baseline) ---
-    for name, suite in all_results[1:]:
-        pretty_print_compare("OURS", res_ours, name, suite)
-
-    print()  # spacer
+    print("\n")
