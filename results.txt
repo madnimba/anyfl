@@ -1,0 +1,13 @@
+[Refine] Prototype snapping + kNN smoothing
+
+[Refine] Prototype-snap reassigned: 448 samples
+
+[Refine] kNN-smoothed: 399 samples
+
+[Refine] After snapping+smooth | H-ACC:0.7673  NMI:0.5999  ARI:0.5737
+
+[Refine] Adopted refined assignments.
+
+
+
+[OK] Wrote ./clusters/CIFAR10_ids.npy, _conf.npy, _pairs.json

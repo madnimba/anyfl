@@ -1,101 +1,78 @@
-# MNIST/CIFAR10 Clustering + VFL Defenses (Local, Linux, RTX 4060)
+# MNIST/CIFAR10 Clustering + VFL Attack/Defense (Local)
 
-This project is a locally runnable version of your Colab notebook. It includes:
-- `run_clustering.py` — Dataset-aware SimCLR embeddings (MNIST or CIFAR-10) on left halves + GMM clustering
-- `save_artifacts.py` — Writes cluster artifacts to `./clusters/` (ids/conf/pairs)
-- `defense_attack.py` — Toy VFL training under attacks + multiple defenses
-- `cluster_check.py` — Quick quality checks of saved clusters
-- `hungarian_acc.py` — Optional utility for matched clustering accuracy
-- `requirements.txt` — Non-PyTorch Python deps
+Two-phase experimentation flow:
 
-## 0) GPU + Driver Check
-- Ensure NVIDIA driver is installed and visible:
-  ```bash
-  nvidia-smi
-  ```
-  Your RTX 4060 requires a recent driver compatible with CUDA 12.x.
+1. **Phase 1 — Clustering**: Run dataset-specific clustering; artifacts are saved under `./clusters/`.
+2. **Phase 2 — Attack**: Run VFL training with cluster-based (or label-based) swap attacks and optional defenses.
 
-## 1) Create a Python 3.10+ virtual environment
+## Layout
+
+- **`attack_core.py`** — Shared logic: cluster loading, swap strategies, defenses, training, evaluation. Used by all attack entrypoints.
+- **`run_attack.py`** — Main entrypoint: `--dataset`, `--experiment suite|sensitivity|strategies`.
+- **`attack_with_baselines.py`** — Thin wrapper: top-k sensitivity (no defense) for MNIST.
+- **`attack_defense.py`** — Thin wrapper: pred vs GT defense suite (e.g. MUSHROOM).
+- **`swap_strategies.py`** — Thin wrapper: four swap strategies × defenses (e.g. HAR, MUSHROOM).
+- **`run_clustering_mnist.py`** — MNIST (and FashionMNIST) clustering; writes `./clusters/<DATASET>_ids.npy`, `_conf.npy`, `_pairs.json`, encoder, embeddings.
+- **`run_*_clustering.py`** — Other datasets (CIFAR10, HAR, Bank, Mushroom, 20ng, etc.).
+- **`cluster_check.py`** — Inspect cluster quality (purity, NMI, ARI, confusion).
+- **`hungarian_acc.py`** — Hungarian-matched clustering accuracy.
+- **`datasets.py`** — Dataset loaders (`get_dataset`).
+- **`clustering_utils.py`** — Shared config/augmentations/encoders for clustering (optional use).
+
+## 0) GPU (optional)
+
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -V
+nvidia-smi
+pip install --index-url https://download.pytorch.org/whl/cu124 torch torchvision torchaudio  # or cu121 / cpu
 ```
 
-## 2) Install PyTorch (GPU build) first
-**Pick ONE** of the following (depending on availability). For RTX 4060 on Linux, a CUDA 12.x wheel is recommended:
+## 1) Install deps
 
-**CUDA 12.4 (recommended if supported on your machine):**
-```bash
-pip install --upgrade pip
-pip install --index-url https://download.pytorch.org/whl/cu124 torch torchvision torchaudio
-```
-
-**If cu121 is what your driver supports:**
-```bash
-pip install --index-url https://download.pytorch.org/whl/cu121 torch torchvision torchaudio
-```
-
-If you prefer CPU-only (slower):
-```bash
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-```
-
-**Verify GPU is visible to PyTorch:**
-```bash
-python - << 'PY'
-import torch
-print("CUDA available:", torch.cuda.is_available())
-if torch.cuda.is_available():
-    print("CUDA device:", torch.cuda.get_device_name(0))
-PY
-```
-
-## 3) Install remaining Python deps
 ```bash
 pip install -r requirements.txt
 ```
 
-## 4) Run dataset-aware clustering (downloads data automatically)
-MNIST:
-```bash
-python run_clustering.py --dataset MNIST --epochs 40 --batch 256
-```
-CIFAR-10:
-```bash
-python run_clustering.py --dataset CIFAR10 --epochs 80 --batch 256
-```
-This trains a SimCLR encoder on the left halves and clusters with a GMM head, printing Purity/NMI/ARI.
+## 2) Phase 1 — Clustering
 
-## 5) Save cluster artifacts for the defense script
-After clustering, run:
-Artifacts are automatically saved as `./clusters/<DATASET>_ids.npy`, `./clusters/<DATASET>_conf.npy`, and `./clusters/<DATASET>_pairs.json`.
+MNIST (saves to `./clusters/MNIST_*`):
 
-## 6) (Optional) Inspect cluster quality
 ```bash
-python cluster_check.py
+python run_clustering_mnist.py --dataset MNIST
 ```
 
-## 7) Run the VFL attack + defenses experiment
+CIFAR-10: use `run_cifar10_clustering2.py` (or the CIFAR runner you use). Tabular (Mushroom, Bank, HAR, etc.): use the corresponding `run_*_clustering.py` script. Artifacts are written to `./clusters/<DATASET>_ids.npy`, `_conf.npy`, `_pairs.json`.
+
+## 3) Phase 2 — Attack
+
+**Unified entrypoint (recommended):**
+
 ```bash
-python defense_attack.py
+# Pred vs GT defense suite (image or tabular)
+python run_attack.py --dataset MNIST --experiment suite
+
+# Top-k sensitivity (no defense)
+python run_attack.py --dataset MNIST --experiment sensitivity --k 1 2 3 5 7
+
+# Four swap strategies × defenses
+python run_attack.py --dataset MUSHROOM --experiment strategies
 ```
-- If `./clusters` exists with artifacts, it will use *label-blind* clusters.
-- Otherwise it will fall back to an *oracle label-swap* attack generator.
 
-## Notes & Tips
-- All scripts default to MNIST and will auto-download under `~/.torch/` if not present.
-- You can edit constants at the top of each script (e.g., epochs, batch sizes, toggles like `RUN_CDAE`, `RUN_SIMCLR`).
-- For faster tests, reduce dataset sizes or epochs.
-- If `scipy` is missing for the Hungarian accuracy util, it will auto-install inside the script as a fallback.
+**Legacy wrappers (same behavior, fixed dataset list):**
 
-## Troubleshooting
-- **`torch.cuda.is_available() == False`**: check `nvidia-smi`, driver version, and that you installed a CUDA-enabled PyTorch wheel.
-- **Import errors**: run `pip install -r requirements.txt` inside the same venv.
-- **No `./clusters`**: run `python save_artifacts.py` after `python run_clustering.py`.
-
-## 8) Evaluate clustering accuracy with Hungarian matching
 ```bash
-python hungarian_acc.py --dataset MNIST --n 5000
-python hungarian_acc.py --dataset CIFAR10 --n 5000
+python attack_with_baselines.py   # MNIST, top-k sensitivity
+python attack_defense.py          # MUSHROOM, pred vs GT suite
+python swap_strategies.py         # HAR, MUSHROOM, strategies table
 ```
+
+## 4) Optional — Cluster quality
+
+```bash
+python cluster_check.py --dataset MNIST [--n_samples 5000]
+python hungarian_acc.py --dataset MNIST --n_samples 5000
+```
+
+## 5) Notes
+
+- Clustering scripts write artifacts themselves; there is no separate `save_artifacts` step (see `save_artifacts.py` for the note).
+- For more detail on the repo structure, see `CODEBASE_ANALYSIS.md`.
