@@ -244,9 +244,50 @@ class ResNet50CIFAREncoder(nn.Module):
         return self.proj(h)
 
 
+class STL10ModerateResNetEncoder(nn.Module):
+    """
+    STL-10 moderate encoder (recommended):
+      stem: Conv3x3(in_ch -> 64), BN, ReLU
+      layer1: 3 BasicBlocks @ 64
+      layer2: 2 BasicBlocks @ 128 (first stride=2)
+      layer3: 2 BasicBlocks @ 256 (first stride=2)
+      GAP -> Linear(256 -> 256)
+    No 4th stage to avoid over-specializing on partial images.
+    """
+
+    def __init__(self, in_ch: int, emb_dim: int = 256):
+        super().__init__()
+        self.stem = nn.Sequential(
+            nn.Conv2d(in_ch, 64, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+        )
+        self.layer1 = _make_basic_layer(64, 64, blocks=3, stride=1)
+        self.layer2 = _make_basic_layer(64, 128, blocks=2, stride=2)
+        self.layer3 = _make_basic_layer(128, 256, blocks=2, stride=2)
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.proj = nn.Linear(256, emb_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = self.stem(x)
+        h = self.layer1(h)
+        h = self.layer2(h)
+        h = self.layer3(h)
+        h = self.pool(h).flatten(1)
+        return self.proj(h)
+
+
 @dataclass(frozen=True)
 class EncoderSpec:
-    kind: Literal["small_cnn", "small_resnet", "resnet18_cifar", "resnet50_cifar", "resnet34_stl", "mlp"]
+    kind: Literal[
+        "small_cnn",
+        "small_resnet",
+        "resnet18_cifar",
+        "resnet50_cifar",
+        "resnet34_stl",
+        "stl10_moderate_resnet",
+        "mlp",
+    ]
     emb_dim: int
     hidden: Optional[int] = None
     dropout: float = 0.1
@@ -277,6 +318,8 @@ def build_encoder_for_part(
         return ResNet50CIFAREncoder(in_ch=in_ch, emb_dim=spec.emb_dim)
     if spec.kind == "resnet34_stl":
         return ResNet34STLEncoder(in_ch=in_ch, emb_dim=spec.emb_dim)
+    if spec.kind == "stl10_moderate_resnet":
+        return STL10ModerateResNetEncoder(in_ch=in_ch, emb_dim=spec.emb_dim)
 
     raise ValueError(f"Unknown encoder kind: {spec.kind}")
 

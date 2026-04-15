@@ -1,0 +1,25 @@
+dataset: CIFAR-10
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+train:
+  epochs: 80
+  batch_size: 1024
+  lr: 0.001
+  weight_decay: 0.01
+  optimizer: adamw
+  augment_cifar10: true
+model:
+  dataset: CIFAR-10
+  task: multiclass
+  k_clients: 2
+  encoder:
+    kind: small_resnet
+    emb_dim: 256
+    width: 64
+  server:
+    head_kind: concat_mlp3
+    hidden: 512
+    hidden2: 256
+    dropout: 0.1

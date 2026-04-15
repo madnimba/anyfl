@@ -1,0 +1,8 @@
+{
+  "dataset": "CIFAR10",
+  "k_clients": 2,
+  "metrics": {
+    "accuracy": 0.8935999870300293
+  },
+  "task": "multiclass"
+}

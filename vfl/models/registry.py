@@ -26,9 +26,12 @@ def default_model_config(dataset_name: str, task: str, k_clients: int) -> ModelC
         srv = ServerSpec(hidden=256, dropout=0.1)
         return ModelConfig(dataset=d, task=task, k_clients=k_clients, encoder=enc, server=srv)
     if d in {"CIFAR10", "CIFAR-10"}:
-        enc = EncoderSpec(kind="resnet18_cifar", emb_dim=128, width=32)
-        # Linear(k*128 -> 256) -> ReLU -> Linear(256 -> C)
-        srv = ServerSpec(hidden=256, dropout=0.0)
+        # Empirically strong in this codebase: small_resnet, but wider + larger embedding.
+        # Keep resnet18_cifar available for ablations but not default.
+        enc = EncoderSpec(kind="small_resnet", emb_dim=256, width=64)
+        # Stronger 3-layer fusion head:
+        # Linear(k*256 -> 512) -> ReLU -> Dropout(0.1) -> Linear(512 -> 256) -> ReLU -> Linear(256 -> 10)
+        srv = ServerSpec(head_kind="concat_mlp3", hidden=512, hidden2=256, dropout=0.1)
         return ModelConfig(dataset=d, task=task, k_clients=k_clients, encoder=enc, server=srv)
     if d in {"CIFAR100", "CIFAR-100"}:
         enc = EncoderSpec(kind="resnet50_cifar", emb_dim=256, width=32)
@@ -36,8 +39,11 @@ def default_model_config(dataset_name: str, task: str, k_clients: int) -> ModelC
         srv = ServerSpec(hidden=512, dropout=0.0)
         return ModelConfig(dataset=d, task=task, k_clients=k_clients, encoder=enc, server=srv)
     if d in {"STL10", "STL-10"}:
-        enc = EncoderSpec(kind="resnet34_stl", emb_dim=256, width=32)
-        srv = ServerSpec(hidden=512, dropout=0.0)
+        # Empirically: a moderate local encoder performs better on partitioned STL-10 than a full ResNet-34.
+        enc = EncoderSpec(kind="stl10_moderate_resnet", emb_dim=256, width=64)
+        # Stronger 3-layer fusion head:
+        # Linear(k*256 -> 512) -> ReLU -> Dropout(0.1) -> Linear(512 -> 256) -> ReLU -> Linear(256 -> C)
+        srv = ServerSpec(head_kind="concat_mlp3", hidden=512, hidden2=256, dropout=0.1)
         return ModelConfig(dataset=d, task=task, k_clients=k_clients, encoder=enc, server=srv)
     # Tabular + NUS-WIDE default
     enc = EncoderSpec(kind="mlp", emb_dim=128, hidden=256, dropout=0.1)
