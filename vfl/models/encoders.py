@@ -80,6 +80,48 @@ class BasicBlock(nn.Module):
         return out
 
 
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, in_ch: int, mid_ch: int, stride: int = 1):
+        super().__init__()
+        out_ch = mid_ch * self.expansion
+        self.conv1 = nn.Conv2d(in_ch, mid_ch, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(mid_ch)
+        self.conv2 = nn.Conv2d(mid_ch, mid_ch, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(mid_ch)
+        self.conv3 = nn.Conv2d(mid_ch, out_ch, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(out_ch)
+        self.shortcut = None
+        if stride != 1 or in_ch != out_ch:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_ch, out_ch, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(out_ch),
+            )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out = F.relu(self.bn1(self.conv1(x)), inplace=True)
+        out = F.relu(self.bn2(self.conv2(out)), inplace=True)
+        out = self.bn3(self.conv3(out))
+        sc = x if self.shortcut is None else self.shortcut(x)
+        return F.relu(out + sc, inplace=True)
+
+
+def _make_basic_layer(in_ch: int, out_ch: int, blocks: int, stride: int) -> nn.Sequential:
+    layers = [BasicBlock(in_ch, out_ch, stride=stride)]
+    for _ in range(blocks - 1):
+        layers.append(BasicBlock(out_ch, out_ch, stride=1))
+    return nn.Sequential(*layers)
+
+
+def _make_bottleneck_layer(in_ch: int, mid_ch: int, blocks: int, stride: int) -> nn.Sequential:
+    layers = [Bottleneck(in_ch, mid_ch, stride=stride)]
+    out_ch = mid_ch * Bottleneck.expansion
+    for _ in range(blocks - 1):
+        layers.append(Bottleneck(out_ch, mid_ch, stride=1))
+    return nn.Sequential(*layers)
+
+
 class SmallResNetEncoder(nn.Module):
     """
     Lightweight ResNet-style encoder for CIFAR/STL slices.
@@ -108,9 +150,103 @@ class SmallResNetEncoder(nn.Module):
         return self.proj(h)
 
 
+class ResNet18CIFAREncoder(nn.Module):
+    """
+    CIFAR-style ResNet-18 encoder:
+    stem: 3x3 conv, stride=1, no maxpool
+    stages: [2,2,2,2] BasicBlocks with channels 64/128/256/512
+    GAP -> Linear(512 -> emb_dim)
+    """
+
+    def __init__(self, in_ch: int, emb_dim: int = 128):
+        super().__init__()
+        self.stem = nn.Sequential(
+            nn.Conv2d(in_ch, 64, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+        )
+        self.stage1 = _make_basic_layer(64, 64, blocks=2, stride=1)
+        self.stage2 = _make_basic_layer(64, 128, blocks=2, stride=2)
+        self.stage3 = _make_basic_layer(128, 256, blocks=2, stride=2)
+        self.stage4 = _make_basic_layer(256, 512, blocks=2, stride=2)
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.proj = nn.Linear(512, emb_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = self.stem(x)
+        h = self.stage1(h)
+        h = self.stage2(h)
+        h = self.stage3(h)
+        h = self.stage4(h)
+        h = self.pool(h).flatten(1)
+        return self.proj(h)
+
+
+class ResNet34STLEncoder(nn.Module):
+    """
+    ResNet-34 style encoder for STL-10:
+    stages: [3,4,6,3] BasicBlocks with channels 64/128/256/512
+    GAP -> Linear(512 -> emb_dim)
+    """
+
+    def __init__(self, in_ch: int, emb_dim: int = 256):
+        super().__init__()
+        self.stem = nn.Sequential(
+            nn.Conv2d(in_ch, 64, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+        )
+        self.stage1 = _make_basic_layer(64, 64, blocks=3, stride=1)
+        self.stage2 = _make_basic_layer(64, 128, blocks=4, stride=2)
+        self.stage3 = _make_basic_layer(128, 256, blocks=6, stride=2)
+        self.stage4 = _make_basic_layer(256, 512, blocks=3, stride=2)
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.proj = nn.Linear(512, emb_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = self.stem(x)
+        h = self.stage1(h)
+        h = self.stage2(h)
+        h = self.stage3(h)
+        h = self.stage4(h)
+        h = self.pool(h).flatten(1)
+        return self.proj(h)
+
+
+class ResNet50CIFAREncoder(nn.Module):
+    """
+    CIFAR-style ResNet-50 bottleneck encoder:
+    stages: [3,4,6,3] with output dims 256/512/1024/2048
+    GAP -> Linear(2048 -> emb_dim)
+    """
+
+    def __init__(self, in_ch: int, emb_dim: int = 256):
+        super().__init__()
+        self.stem = nn.Sequential(
+            nn.Conv2d(in_ch, 64, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+        )
+        self.stage1 = _make_bottleneck_layer(64, 64, blocks=3, stride=1)      # out 256
+        self.stage2 = _make_bottleneck_layer(256, 128, blocks=4, stride=2)    # out 512
+        self.stage3 = _make_bottleneck_layer(512, 256, blocks=6, stride=2)    # out 1024
+        self.stage4 = _make_bottleneck_layer(1024, 512, blocks=3, stride=2)   # out 2048
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.proj = nn.Linear(2048, emb_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = self.stem(x)
+        h = self.stage1(h)
+        h = self.stage2(h)
+        h = self.stage3(h)
+        h = self.stage4(h)
+        h = self.pool(h).flatten(1)
+        return self.proj(h)
+
+
 @dataclass(frozen=True)
 class EncoderSpec:
-    kind: Literal["small_cnn", "small_resnet", "mlp"]
+    kind: Literal["small_cnn", "small_resnet", "resnet18_cifar", "resnet50_cifar", "resnet34_stl", "mlp"]
     emb_dim: int
     hidden: Optional[int] = None
     dropout: float = 0.1
@@ -135,6 +271,12 @@ def build_encoder_for_part(
         return SmallCNNEncoder(in_ch=in_ch, emb_dim=spec.emb_dim, width=spec.width)
     if spec.kind == "small_resnet":
         return SmallResNetEncoder(in_ch=in_ch, emb_dim=spec.emb_dim, base=max(16, spec.width))
+    if spec.kind == "resnet18_cifar":
+        return ResNet18CIFAREncoder(in_ch=in_ch, emb_dim=spec.emb_dim)
+    if spec.kind == "resnet50_cifar":
+        return ResNet50CIFAREncoder(in_ch=in_ch, emb_dim=spec.emb_dim)
+    if spec.kind == "resnet34_stl":
+        return ResNet34STLEncoder(in_ch=in_ch, emb_dim=spec.emb_dim)
 
     raise ValueError(f"Unknown encoder kind: {spec.kind}")
 

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 
 from .nuswide import load_nuswide_npz
+from .bank_special import load_openml_bank_vfl_paper
 from .tabular import load_openml_bank, load_openml_mushroom, load_openml_ucihar
 from .types import DataConfig, DatasetTensors, NUSWIDEConfig
 from .vision import (
@@ -39,7 +40,8 @@ def load_dataset(req: DatasetRequest) -> DatasetTensors:
     if name in {"UCI-MUSHROOM", "MUSHROOM"}:
         return load_openml_mushroom(req.data_cfg)
     if name in {"UCI-BANK", "BANK"}:
-        return load_openml_bank(req.data_cfg, variant="full", drop_duration=True)
+        # Special-case: paper-style preprocessing + split for stronger clean baseline
+        return load_openml_bank_vfl_paper(req.data_cfg, drop_duration=True)
     if name in {"NUS-WIDE", "NUSWIDE"}:
         if req.nuswide_cfg is None:
             raise ValueError("NUS-WIDE requires nuswide_cfg with path to preprocessed NPZ.")

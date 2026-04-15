@@ -13,9 +13,13 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from vfl.data.registry import DatasetRequest, load_dataset
+from vfl.data.bank_special import balanced_bank_feature_split
 from vfl.models.lr_vfl import KPartyLogReg
 from vfl.models.split_vision import KPartySplitLeNet, KPartySplitResNet, SplitResNetSpec
+from vfl.models.bank_paper_mlp import KPartyBankPaperMLP
 from vfl.models.tabular_mlp_vfl import KPartyTabularMLP
+from vfl.models.fusion import KPartyEmbeddingFusion
+from vfl.models.registry import default_model_config, build_kparty_modules
 from vfl.partition.kway import partition_image_width, partition_tabular_features
 from vfl.train.loop import TrainConfig, train_clean
 from vfl.utils.config import ExperimentConfig, dump_config_yaml, load_experiment_config
@@ -37,7 +41,13 @@ def run_one(cfg: ExperimentConfig, repo_root: str, out_base: str) -> str:
     ds = load_dataset(DatasetRequest(name=cfg.dataset, data_cfg=cfg.data, nuswide_cfg=cfg.nuswide))
 
     # Partition into K clients
-    if _is_image_tensor(ds.X_train):
+    dname = ds.name.strip().upper()
+    if dname in {"UCI-BANK", "BANK"}:
+        # Special balanced mixed split for Bank dataset
+        num_dim = int((ds.meta or {}).get("num_dim", 0))
+        X_parts_train, part_meta = balanced_bank_feature_split(ds.X_train, cfg.k_clients, num_dim=num_dim, seed=cfg.seed)
+        X_parts_test, _ = balanced_bank_feature_split(ds.X_test, cfg.k_clients, num_dim=num_dim, seed=cfg.seed)
+    elif _is_image_tensor(ds.X_train):
         X_parts_train, part_meta = partition_image_width(ds.X_train, cfg.k_clients)
         X_parts_test, _ = partition_image_width(ds.X_test, cfg.k_clients)
     else:
@@ -48,17 +58,20 @@ def run_one(cfg: ExperimentConfig, repo_root: str, out_base: str) -> str:
     X_parts_test_t = tuple(X_parts_test)
 
     # Build model following common VFL baselines per dataset
-    dname = ds.name.strip().upper()
     if dname in {"NUS-WIDE", "NUSWIDE"}:
         in_dims = tuple(int(p.shape[-1]) for p in X_parts_train_t)
         model = KPartyLogReg(in_dims=in_dims)
+    elif dname in {"UCI-BANK", "BANK"}:
+        in_dims = tuple(int(p.shape[-1]) for p in X_parts_train_t)
+        model = KPartyBankPaperMLP(in_dims=in_dims)
     elif _is_image_tensor(ds.X_train) and dname in {"MNIST", "FASHIONMNIST", "FASHION-MNIST"}:
         in_ch = int(ds.X_train.shape[1])
         model = KPartySplitLeNet(in_ch=in_ch, out_dim=ds.num_classes, k_clients=cfg.k_clients, cut=1)
     elif _is_image_tensor(ds.X_train) and dname in {"CIFAR10", "CIFAR-10", "CIFAR100", "CIFAR-100", "STL10", "STL-10"}:
-        in_ch = int(ds.X_train.shape[1])
-        spec = SplitResNetSpec(base=64, cut=1)
-        model = KPartySplitResNet(in_ch=in_ch, out_dim=ds.num_classes, k_clients=cfg.k_clients, spec=spec)
+        # Use embedding-fusion pipeline with dataset-specific strong encoders (see vfl/models/encoders.py presets).
+        mc = default_model_config(dname, ds.task, cfg.k_clients)
+        clients, head = build_kparty_modules(X_parts_train_t, out_dim=ds.num_classes, cfg=mc)
+        model = KPartyEmbeddingFusion(clients, head)
     else:
         in_dims = tuple(int(p.shape[-1]) for p in X_parts_train_t)
         out_dim = ds.num_classes
@@ -72,7 +85,11 @@ def run_one(cfg: ExperimentConfig, repo_root: str, out_base: str) -> str:
     dump_config_yaml(paths.config_yaml, cfg)
     write_json(paths.env_json, get_env_info())
     write_json(paths.git_json, get_git_info(repo_root))
-    write_json(os.path.join(paths.root, "partition.json"), part_meta.to_dict())
+    # Bank uses a custom partition meta dict; other datasets use PartitionMeta dataclass.
+    if isinstance(part_meta, dict):
+        write_json(os.path.join(paths.root, "partition.json"), part_meta)
+    else:
+        write_json(os.path.join(paths.root, "partition.json"), part_meta.to_dict())
 
     # Train/eval
     train_cfg = cfg.train
