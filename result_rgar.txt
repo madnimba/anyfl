@@ -1,0 +1,26 @@
+python3 run_att
+ack.py --experiment compare_rgar --dataset MNIST
+[VFL] PyTorch 2.6.0+cu124 | runtime device: cuda | torch.version.cuda=12.4
+[VFL] GPU: NVIDIA GeForce RTX 4060 Laptop GPU
+Dataset: MNIST
+Train: 5000, Test: 1000
+[MNIST] CLEAN accuracy: 92.90%
+[INFO] PREDICTED clusters for MNIST (top-k farthest).
+# RGAR vs legacy defenses — 2026-03-31T05:35:43.256328
+# dataset=MNIST train=5000 test=1000 epochs=50 seed=0 quick=False legacy_defenses=all
+# swap_note: [INFO] PREDICTED clusters for MNIST (top-k farthest).
+# clean_acc_pct: 92.9000
+
+Defense                                        Acc%    detect%                extra
+----------------------------------------------------------------------------------
+No Defense                                    43.70        0.0                     
+Temporal Cosine-EMA Gate                      22.50       99.0                     
+Grad-Norm Clipping (detect-only)              43.70        0.0                     
+Per-Label Smashed-A Drift                     55.00        0.0                     
+Cross-Party Gradient Consistency               8.50      100.0                     
+AE Anomaly on Smashed-A (warm-up)             42.20        0.3                     
+Covariance Spectrum Drift                     43.60       12.6                     
+Frozen AE (clean-only)                        43.70        0.0                     
+Z-Norm & Var Guard                            43.10        3.3                     
+RGAR (full recon + trust)                     80.30      100.0 
+RGAR (downweight-only)                        26.70      100.0 

@@ -11,3 +11,54 @@
 
 
 [OK] Wrote ./clusters/CIFAR10_ids.npy, _conf.npy, _pairs.json
+
+
+================================================================================
+CIFAR10 ATTACK RESULTS (using CIFAR10_ids.npy + CIFAR10_pairs.json)
+================================================================================
+Dataset: CIFAR10 | Train: 5000, Test: 1000 | Clean accuracy: 36.80%
+
+--- EXPERIMENT: suite (predicted vs ground-truth cluster swap, all defenses) ---
+
+=== Predicted Clusters — Per-Defense Results ===
+Defense                              Acc%   accepted   flagged    total   detect%
+---------------------------------------------------------------------------------
+No Defense                          12.40       1950         0     1950       0.0
+Temporal Cosine-EMA Gate            13.70         20      1930     1950      99.0
+Grad-Norm Clipping (detect-only)    12.40       1950         0     1950       0.0
+Per-Label Smashed-A Drift           17.80       1950         0     1950       0.0
+Cross-Party Gradient Consistency    10.10          0      1950     1950     100.0
+AE Anomaly on Smashed-A (warm-up)    13.60       1932        18     1950       0.9
+Covariance Spectrum Drift           13.80       1745       205     1950      10.5
+Frozen AE (clean-only)              12.40       1950         0     1950       0.0
+Z-Norm & Var Guard                  13.10       1878        72     1950       3.7
+
+=== Ground-Truth Clusters — Per-Defense Results ===
+Defense                              Acc%   accepted   flagged    total   detect%
+---------------------------------------------------------------------------------
+No Defense                          20.20       1950         0     1950       0.0
+Temporal Cosine-EMA Gate            17.00         20      1930     1950      99.0
+Grad-Norm Clipping (detect-only)    20.20       1950         0     1950       0.0
+Per-Label Smashed-A Drift           19.10       1950         0     1950       0.0
+Cross-Party Gradient Consistency    10.10          0      1950     1950     100.0
+AE Anomaly on Smashed-A (warm-up)    20.10       1941         9     1950       0.5
+Covariance Spectrum Drift           21.20       1530       420     1950      21.5
+Frozen AE (clean-only)              20.20       1950         0     1950       0.0
+Z-Norm & Var Guard                  19.20       1881        69     1950       3.5
+
+=== Accuracy & Detect: Predicted vs GroundTruth ===
+Defense                             Predicted     GroundTrut       ΔAcc    DetA%   DetB%
+----------------------------------------------------------------------------------------
+No Defense                              12.40          20.20      -7.80      0.0     0.0
+Temporal Cosine-EMA Gate                13.70          17.00      -3.30     99.0    99.0
+Grad-Norm Clipping (detect-only)        12.40          20.20      -7.80      0.0     0.0
+Per-Label Smashed-A Drift               17.80          19.10      -1.30      0.0     0.0
+Cross-Party Gradient Consistency        10.10          10.10      +0.00    100.0   100.0
+AE Anomaly on Smashed-A (warm-up)        13.60          20.10      -6.50      0.9     0.5
+Covariance Spectrum Drift               13.80          21.20      -7.40     10.5    21.5
+Frozen AE (clean-only)                  12.40          20.20      -7.80      0.0     0.0
+Z-Norm & Var Guard                      13.10          19.20      -6.10      3.7     3.5
+
+--- To run sensitivity (top-k) and strategies yourself ---
+  conda run -n LFBA python run_attack.py --dataset CIFAR10 --experiment sensitivity --train_samples 5000 --test_samples 1000 --epochs 50 --k 1 2 3 5 7
+  conda run -n LFBA python run_attack.py --dataset CIFAR10 --experiment strategies --train_samples 5000 --test_samples 1000 --epochs 50

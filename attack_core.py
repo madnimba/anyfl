@@ -9,7 +9,7 @@ import json
 import random
 import hashlib
 from collections import deque
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import torch
@@ -99,6 +99,17 @@ def to_XA_XB_Y_from_numpy(X_np: np.ndarray, y_np: np.ndarray) -> Tuple[torch.Ten
 # ==============================
 # CLUSTER LOADING
 # ==============================
+def verify_cluster_files(dataset_name: str) -> None:
+    """Raise FileNotFoundError if predicted-cluster attack artifacts are missing."""
+    name = dataset_name.upper()
+    ids_path = os.path.join(CLUSTER_DIR, f"{name}_ids.npy")
+    if not os.path.isfile(ids_path):
+        raise FileNotFoundError(
+            f"Missing cluster file {ids_path}. Run clustering (e.g. run_clustering_mnist.py) "
+            f"or set VFL_CLUSTER_DIR so {name}_ids.npy exists."
+        )
+
+
 def load_cluster_info(
     dataset_name: str,
     n_needed: Optional[int] = None,
@@ -589,6 +600,17 @@ def make_swapped_XA(
     )
 
 
+def apply_swap_with_protected_ref(
+    XA_clean: torch.Tensor,
+    XA_swapped: torch.Tensor,
+    ref_idx: torch.Tensor,
+) -> torch.Tensor:
+    """Restore clean Party-A features on reference indices (server-held trusted subset)."""
+    from server_rgar_defense import protect_reference_in_swapped
+
+    return protect_reference_in_swapped(XA_clean, XA_swapped, ref_idx)
+
+
 def build_swapped_variants(
     dataset_name: str,
     XA_train_clean: torch.Tensor,
@@ -667,6 +689,38 @@ def build_swapped_variants(
 # ==============================
 # MODELS
 # ==============================
+# CIFAR-10 uses left/right halves 3x32x16; default clients just flatten (good for MNIST).
+# For CIFAR-10 we use a ResNet-style CNN + SOTA training (augmentation, LR schedule).
+CIFAR10_LATENT_DIM = 256
+# SOTA training config for CIFAR-10 only (no impact on other datasets)
+CIFAR10_EPOCHS = 120
+CIFAR10_LR_INIT = 0.1
+CIFAR10_WEIGHT_DECAY = 5e-4
+CIFAR10_MOMENTUM = 0.9
+
+
+def _cifar10_sgd_bundle(
+    clientA: nn.Module,
+    clientB: nn.Module,
+    serverC: nn.Module,
+    epochs: int,
+) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.CosineAnnealingLR]:
+    params = list(clientA.parameters()) + list(clientB.parameters()) + list(serverC.parameters())
+    opt = torch.optim.SGD(
+        params,
+        lr=CIFAR10_LR_INIT,
+        momentum=CIFAR10_MOMENTUM,
+        weight_decay=CIFAR10_WEIGHT_DECAY,
+        nesterov=True,
+    )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
+    return opt, scheduler
+
+
+def _cifar10_loss_fn() -> nn.CrossEntropyLoss:
+    return nn.CrossEntropyLoss(label_smoothing=0.05)
+
+
 class ClientA(nn.Module):
     def __init__(self):
         super().__init__()
@@ -683,6 +737,156 @@ class ClientB(nn.Module):
 
     def forward(self, x):
         return F.relu(self.features(x))
+
+
+def _make_cifar10_resblock(in_ch: int, out_ch: int, stride: int = 1) -> nn.Module:
+    return nn.Sequential(
+        nn.Conv2d(in_ch, out_ch, 3, stride=stride, padding=1),
+        nn.BatchNorm2d(out_ch),
+        nn.ReLU(inplace=True),
+        nn.Conv2d(out_ch, out_ch, 3, padding=1),
+        nn.BatchNorm2d(out_ch),
+    )
+
+
+class _CIFAR10ResNetClient(nn.Module):
+    """ResNet-style CNN for CIFAR-10 half (3 x 32 x 16). Output dim = CIFAR10_LATENT_DIM."""
+
+    def __init__(self, out_dim: int = CIFAR10_LATENT_DIM):
+        super().__init__()
+        # No MaxPool on stem: 32×16 halves are narrow; early pooling hurts representation.
+        # Wider trunk than tiny MNIST-style nets; each half-image still limits ceiling vs full 32×32.
+        self.stem = nn.Sequential(
+            nn.Conv2d(3, 96, 3, padding=1),
+            nn.BatchNorm2d(96),
+            nn.ReLU(inplace=True),
+        )
+        self.layer1 = self._layer(96, 96, 2, stride=2)
+        self.layer2 = self._layer(96, 192, 2, stride=2)
+        self.layer3 = self._layer(192, 384, 2, stride=2)
+        self.gap = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(384, out_dim)
+
+    @staticmethod
+    def _layer(in_ch: int, out_ch: int, n_blocks: int, stride: int = 1) -> nn.Module:
+        blocks = []
+        downsample = None
+        if stride != 1 or in_ch != out_ch:
+            downsample = nn.Sequential(
+                nn.Conv2d(in_ch, out_ch, 1, stride=stride),
+                nn.BatchNorm2d(out_ch),
+            )
+        blocks.append(_ResBlock(_make_cifar10_resblock(in_ch, out_ch, stride), downsample))
+        for _ in range(n_blocks - 1):
+            blocks.append(_ResBlock(_make_cifar10_resblock(out_ch, out_ch)))
+        return nn.Sequential(*blocks)
+
+    def forward(self, x):
+        x = self.stem(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.gap(x)
+        x = x.flatten(1)
+        return F.relu(self.fc(x))
+
+
+class _ResBlock(nn.Module):
+    def __init__(self, block: nn.Module, downsample: Optional[nn.Module] = None):
+        super().__init__()
+        self.block = block
+        self.downsample = downsample
+
+    def forward(self, x):
+        identity = x
+        out = self.block(x)
+        if self.downsample is not None:
+            identity = self.downsample(x)
+        return F.relu(out + identity)
+
+
+class ClientA_CIFAR10(_CIFAR10ResNetClient):
+    """ResNet-style client for CIFAR-10 left half (3 x 32 x 16)."""
+
+    pass
+
+
+class ClientB_CIFAR10(_CIFAR10ResNetClient):
+    """ResNet-style client for CIFAR-10 right half (3 x 32 x 16)."""
+
+    pass
+
+
+def _get_client_models_and_in_dim(
+    dataset_name: Optional[str],
+    XA_sample: torch.Tensor,
+    XB_sample: torch.Tensor,
+) -> Tuple[nn.Module, nn.Module, int]:
+    """Return (clientA, clientB, in_dim). For CIFAR10 use CNN clients; else default Flatten clients."""
+    if dataset_name is not None and dataset_name.upper() == "CIFAR10":
+        clientA = ClientA_CIFAR10()
+        clientB = ClientB_CIFAR10()
+        in_dim = 2 * CIFAR10_LATENT_DIM
+        return clientA, clientB, in_dim
+    a_dim, b_dim, in_dim = _view_dims(XA_sample, XB_sample)
+    return ClientA(), ClientB(), in_dim
+
+
+def _is_cifar10(dataset_name: Optional[str]) -> bool:
+    return dataset_name is not None and dataset_name.upper() == "CIFAR10"
+
+
+def _augment_cifar10_half(x: torch.Tensor) -> torch.Tensor:
+    """Augment a batch of CIFAR-10 half images (B, 3, 32, 16). In-place friendly."""
+    B, C, H, W = x.shape
+    # Random crop: pad by 2 each side -> (B,3,36,20), then crop 32x16
+    pad = 2
+    x = F.pad(x, [pad, pad, pad, pad], mode="reflect")
+    w_start = random.randint(0, 2 * pad) if 2 * pad > 0 else 0
+    h_start = random.randint(0, 2 * pad) if 2 * pad > 0 else 0
+    x = x[:, :, h_start : h_start + H, w_start : w_start + W]
+    # Random horizontal flip (on the 16-dim width)
+    if random.random() < 0.5:
+        x = torch.flip(x, dims=[-1])
+    # Color jitter (brightness/contrast)
+    if random.random() < 0.8:
+        b = 0.8 + 0.4 * random.random()
+        x = x * b
+    if random.random() < 0.8:
+        c = 0.8 + 0.4 * random.random()
+        x = (x - x.mean(dim=(1, 2, 3), keepdim=True)) * c + x.mean(dim=(1, 2, 3), keepdim=True)
+    # Inputs may be CIFAR-normalized (not in [0,1]); keep a loose bound for numerical stability.
+    return x.clamp(-4.0, 4.0)
+
+
+class _ServerCWrapper(nn.Module):
+    """Wrapper so we can use a custom Sequential head with same interface as ServerC (forward(xa, xb))."""
+
+    def __init__(self, head: nn.Module):
+        super().__init__()
+        self.head = head
+
+    def forward(self, xa, xb):
+        return self.head(torch.cat([xa, xb], dim=1))
+
+
+def _get_server_c(
+    dataset_name: Optional[str],
+    in_dim: int,
+    n_classes: int,
+) -> nn.Module:
+    """Return ServerC (or wrapper); for CIFAR10 use a wider head for 512-dim input."""
+    if _is_cifar10(dataset_name) and in_dim == 2 * CIFAR10_LATENT_DIM:
+        head = nn.Sequential(
+            nn.Linear(in_dim, 256),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.1),
+            nn.Linear(256, 128),
+            nn.ReLU(inplace=True),
+            nn.Linear(128, n_classes),
+        )
+        return _ServerCWrapper(head)
+    return ServerC(in_dim=in_dim, n_classes=n_classes)
 
 
 class ServerC(nn.Module):
@@ -1143,16 +1347,24 @@ def train_once(
     defense_name: str = "none",
     epochs: int = EPOCHS,
     batch_size: int = BATCH_SIZE,
+    dataset_name: Optional[str] = None,
 ) -> Tuple[nn.Module, nn.Module, nn.Module, Dict[str, Any]]:
     num_classes = _num_classes_from_Y(Y_train)
-    clientA, clientB = ClientA().to(DEVICE), ClientB().to(DEVICE)
-    a_dim, b_dim, in_dim = _view_dims(XA_train[0], XB_train[0])
-    serverC = ServerC(in_dim=in_dim, n_classes=num_classes).to(DEVICE)
-    opt = torch.optim.Adam(
-        list(clientA.parameters()) + list(clientB.parameters()) + list(serverC.parameters()),
-        lr=1e-3,
+    clientA, clientB, in_dim = _get_client_models_and_in_dim(
+        dataset_name, XA_train[0], XB_train[0]
     )
-    loss_fn = nn.CrossEntropyLoss()
+    clientA, clientB = clientA.to(DEVICE), clientB.to(DEVICE)
+    serverC = _get_server_c(dataset_name, in_dim, num_classes).to(DEVICE)
+    use_cifar10_sota = _is_cifar10(dataset_name)
+    if use_cifar10_sota:
+        opt, scheduler = _cifar10_sgd_bundle(clientA, clientB, serverC, epochs)
+    else:
+        opt = torch.optim.Adam(
+            list(clientA.parameters()) + list(clientB.parameters()) + list(serverC.parameters()),
+            lr=1e-3,
+        )
+        scheduler = None
+    loss_fn = _cifar10_loss_fn() if use_cifar10_sota else nn.CrossEntropyLoss()
     N = len(Y_train)
     usable = N - (N % batch_size)
     defense = DEFENSES[defense_name]
@@ -1169,6 +1381,9 @@ def train_once(
             e = s + batch_size
             xa_input = XA_train[s:e].to(DEVICE)
             xb_input = XB_train[s:e].to(DEVICE)
+            if use_cifar10_sota:
+                xa_input = _augment_cifar10_half(xa_input)
+                xb_input = _augment_cifar10_half(xb_input)
             y = Y_train[s:e].to(DEVICE)
             xa = clientA(xa_input)
             xb = clientB(xb_input)
@@ -1213,6 +1428,8 @@ def train_once(
             else:
                 stats["flagged"] += 1
             stats["total"] += 1
+        if scheduler is not None:
+            scheduler.step()
     return clientA, clientB, serverC, stats
 
 
@@ -1223,16 +1440,24 @@ def train_drift_stealth(
     Y_train: torch.Tensor,
     epochs: int,
     batch_size: int = BATCH_SIZE,
+    dataset_name: Optional[str] = None,
 ) -> Tuple[nn.Module, nn.Module, nn.Module, Dict[str, Any]]:
     num_classes = _num_classes_from_Y(Y_train)
-    clientA, clientB = ClientA().to(DEVICE), ClientB().to(DEVICE)
-    a_dim, b_dim, in_dim = _view_dims(XA_clean[0], XB_train[0])
-    serverC = ServerC(in_dim=in_dim, n_classes=num_classes).to(DEVICE)
-    opt = torch.optim.Adam(
-        list(clientA.parameters()) + list(clientB.parameters()) + list(serverC.parameters()),
-        lr=1e-3,
+    clientA, clientB, in_dim = _get_client_models_and_in_dim(
+        dataset_name, XA_clean[0], XB_train[0]
     )
-    loss_fn = nn.CrossEntropyLoss()
+    clientA, clientB = clientA.to(DEVICE), clientB.to(DEVICE)
+    serverC = _get_server_c(dataset_name, in_dim, num_classes).to(DEVICE)
+    use_cifar = _is_cifar10(dataset_name)
+    if use_cifar:
+        opt, scheduler = _cifar10_sgd_bundle(clientA, clientB, serverC, epochs)
+    else:
+        opt = torch.optim.Adam(
+            list(clientA.parameters()) + list(clientB.parameters()) + list(serverC.parameters()),
+            lr=1e-3,
+        )
+        scheduler = None
+    loss_fn = _cifar10_loss_fn() if use_cifar else nn.CrossEntropyLoss()
     N = len(Y_train)
     usable = N - (N % batch_size)
     fixed_batches = build_fixed_stratified_batches(Y_train[:usable], batch_size, SEED, num_classes)
@@ -1259,9 +1484,16 @@ def train_drift_stealth(
         for ids in fixed_batches:
             ids_dev = ids.to(DEVICE)
             alpha = _cosine_warmup_alpha(step, total_steps, warmup_frac=0.10, alpha_max=1.0)
-            xa_mix = (1.0 - alpha) * XA_clean_dev[ids_dev] + alpha * XA_swap_dev[ids_dev]
+            xa_c = XA_clean_dev[ids_dev]
+            xa_s = XA_swap_dev[ids_dev]
+            xb_b = XB_train_dev[ids_dev]
+            if use_cifar:
+                xa_c = _augment_cifar10_half(xa_c)
+                xa_s = _augment_cifar10_half(xa_s)
+                xb_b = _augment_cifar10_half(xb_b)
+            xa_mix = (1.0 - alpha) * xa_c + alpha * xa_s
             za_raw = clientA(xa_mix)
-            zb = clientB(XB_train_dev[ids_dev])
+            zb = clientB(xb_b)
             za = _moment_match_and_cap(za_raw, mu0, std0, l2_q=0.95)
             y = Y_train_dev[ids_dev]
             out = serverC(za, zb)
@@ -1276,6 +1508,8 @@ def train_drift_stealth(
                 stats["flagged"] += 1
             stats["total"] += 1
             step += 1
+        if scheduler is not None:
+            scheduler.step()
     return clientA, clientB, serverC, stats
 
 
@@ -1291,23 +1525,32 @@ def train_cosine_ema_stealth(
     align_lr: float = 5e-3,
     stay_close_mu: float = 1e-2,
     batch_size: int = BATCH_SIZE,
+    dataset_name: Optional[str] = None,
 ) -> Tuple[nn.Module, nn.Module, nn.Module, Dict[str, Any]]:
     num_classes = _num_classes_from_Y(Y_train)
-    clientA, clientB = ClientA().to(DEVICE), ClientB().to(DEVICE)
-    a_dim, b_dim, in_dim = _view_dims(XA_swapped[0], XB_train[0])
-    serverC = ServerC(in_dim=in_dim, n_classes=num_classes).to(DEVICE)
-    opt = torch.optim.Adam(
-        list(clientA.parameters()) + list(clientB.parameters()) + list(serverC.parameters()),
-        lr=1e-3,
+    clientA, clientB, in_dim = _get_client_models_and_in_dim(
+        dataset_name, XA_swapped[0], XB_train[0]
     )
-    loss_fn = nn.CrossEntropyLoss()
+    clientA, clientB = clientA.to(DEVICE), clientB.to(DEVICE)
+    serverC = _get_server_c(dataset_name, in_dim, num_classes).to(DEVICE)
+    use_cifar = _is_cifar10(dataset_name)
+    if use_cifar:
+        opt, scheduler = _cifar10_sgd_bundle(clientA, clientB, serverC, epochs)
+    else:
+        opt = torch.optim.Adam(
+            list(clientA.parameters()) + list(clientB.parameters()) + list(serverC.parameters()),
+            lr=1e-3,
+        )
+        scheduler = None
+    loss_fn = _cifar10_loss_fn() if use_cifar else nn.CrossEntropyLoss()
     N = len(Y_train)
     usable = N - (N % batch_size)
     fixed_batches = build_fixed_stratified_batches(Y_train[:usable], batch_size, SEED, num_classes)
     XA_swapped_dev = XA_swapped[:usable].to(DEVICE)
     XB_train_dev = XB_train[:usable].to(DEVICE)
     Y_train_dev = Y_train[:usable].to(DEVICE)
-    feat_dim = a_dim
+    with torch.no_grad():
+        feat_dim = clientA(XA_swapped_dev[:1]).shape[1]
     with torch.no_grad():
         clientA.eval()
         Z_cache = torch.empty(usable, feat_dim, device=DEVICE)
@@ -1329,7 +1572,12 @@ def train_cosine_ema_stealth(
         for ids in fixed_batches:
             ids_dev = ids.to(DEVICE)
             with torch.no_grad():
-                xa_poison = clientA(XA_swapped_dev[ids_dev])
+                xa_in = (
+                    _augment_cifar10_half(XA_swapped_dev[ids_dev])
+                    if use_cifar
+                    else XA_swapped_dev[ids_dev]
+                )
+                xa_poison = clientA(xa_in)
                 Z_cache[ids_dev] = ema_alpha * Z_cache[ids_dev] + (1.0 - ema_alpha) * xa_poison
                 z0 = Z_cache[ids_dev]
                 mu_b = z0.mean(0, keepdim=True)
@@ -1339,7 +1587,12 @@ def train_cosine_ema_stealth(
                 norms = z_mm.norm(dim=1, keepdim=True) + 1e-6
                 z_mm = z_mm * torch.clamp(target / norms, max=1.0)
             z = z_mm.clone().detach().requires_grad_(True)
-            xb = clientB(XB_train_dev[ids_dev]).detach()
+            xb_raw = (
+                _augment_cifar10_half(XB_train_dev[ids_dev])
+                if use_cifar
+                else XB_train_dev[ids_dev]
+            )
+            xb = clientB(xb_raw).detach()
             y = Y_train_dev[ids_dev]
             for _it in range(align_steps):
                 out = serverC(z, xb)
@@ -1358,7 +1611,7 @@ def train_cosine_ema_stealth(
                     z.grad.zero_()
             xa_leaf = z.detach().requires_grad_(True)
             xa_leaf.retain_grad()
-            out = serverC(xa_leaf, clientB(XB_train_dev[ids_dev]))
+            out = serverC(xa_leaf, clientB(xb_raw))
             loss = loss_fn(out, y)
             opt.zero_grad()
             loss.backward()
@@ -1370,6 +1623,8 @@ def train_cosine_ema_stealth(
             else:
                 stats["flagged"] += 1
             stats["total"] += 1
+        if scheduler is not None:
+            scheduler.step()
     return clientA, clientB, serverC, stats
 
 
@@ -1383,16 +1638,24 @@ def train_cross_consistency_stealth(
     align_steps: int = 2,
     align_lr: float = 5e-3,
     batch_size: int = BATCH_SIZE,
+    dataset_name: Optional[str] = None,
 ) -> Tuple[nn.Module, nn.Module, nn.Module, Dict[str, Any]]:
     num_classes = _num_classes_from_Y(Y_train)
-    clientA, clientB = ClientA().to(DEVICE), ClientB().to(DEVICE)
-    a_dim, b_dim, in_dim = _view_dims(XA_swapped[0], XB_train[0])
-    serverC = ServerC(in_dim=in_dim, n_classes=num_classes).to(DEVICE)
-    opt = torch.optim.Adam(
-        list(clientA.parameters()) + list(clientB.parameters()) + list(serverC.parameters()),
-        lr=1e-3,
+    clientA, clientB, in_dim = _get_client_models_and_in_dim(
+        dataset_name, XA_swapped[0], XB_train[0]
     )
-    loss_fn = nn.CrossEntropyLoss()
+    clientA, clientB = clientA.to(DEVICE), clientB.to(DEVICE)
+    serverC = _get_server_c(dataset_name, in_dim, num_classes).to(DEVICE)
+    use_cifar = _is_cifar10(dataset_name)
+    if use_cifar:
+        opt, scheduler = _cifar10_sgd_bundle(clientA, clientB, serverC, epochs)
+    else:
+        opt = torch.optim.Adam(
+            list(clientA.parameters()) + list(clientB.parameters()) + list(serverC.parameters()),
+            lr=1e-3,
+        )
+        scheduler = None
+    loss_fn = _cifar10_loss_fn() if use_cifar else nn.CrossEntropyLoss()
     N = len(Y_train)
     usable = N - (N % batch_size)
     fixed_batches = build_fixed_stratified_batches(Y_train[:usable], batch_size, SEED, num_classes)
@@ -1414,8 +1677,16 @@ def train_cross_consistency_stealth(
     for _ in range(epochs):
         for ids in fixed_batches:
             ids_dev = ids.to(DEVICE)
-            xA = XA_swapped_dev[ids_dev]
-            xB = XB_train_dev[ids_dev]
+            xA = (
+                _augment_cifar10_half(XA_swapped_dev[ids_dev])
+                if use_cifar
+                else XA_swapped_dev[ids_dev]
+            )
+            xB = (
+                _augment_cifar10_half(XB_train_dev[ids_dev])
+                if use_cifar
+                else XB_train_dev[ids_dev]
+            )
             y = Y_train_dev[ids_dev]
             za_probe = clientA(xA).detach().requires_grad_(True)
             za_probe.retain_grad()
@@ -1459,7 +1730,185 @@ def train_cross_consistency_stealth(
             else:
                 stats["flagged"] += 1
             stats["total"] += 1
+        if scheduler is not None:
+            scheduler.step()
     return clientA, clientB, serverC, stats
+
+
+def train_once_rgar(
+    XA_clean_train: torch.Tensor,
+    XA_swapped_train: torch.Tensor,
+    XB_train: torch.Tensor,
+    Y_train: torch.Tensor,
+    dataset_name: Optional[str] = None,
+    epochs: int = EPOCHS,
+    batch_size: int = BATCH_SIZE,
+    seed: int = SEED,
+    rgar_cfg: Optional[Any] = None,
+    downweight_only: bool = False,
+) -> Tuple[nn.Module, nn.Module, nn.Module, Dict[str, Any], Dict[str, Any]]:
+    """
+    RGAR training: reference warm-up on clean Party-A data, prototype/recon build,
+    then main loop with trust-weighted fusion and honest-view reconstruction when
+    Party A is globally attributed as malicious.
+    """
+    from server_rgar_defense import (
+        RGARConfig,
+        RGAREngine,
+        stratified_ref_indices,
+        train_reconstructor,
+    )
+
+    cfg = rgar_cfg or RGARConfig()
+    set_seed(seed)
+    num_classes = _num_classes_from_Y(Y_train)
+    clientA, clientB, in_dim = _get_client_models_and_in_dim(
+        dataset_name, XA_clean_train[0], XB_train[0]
+    )
+    clientA, clientB = clientA.to(DEVICE), clientB.to(DEVICE)
+    serverC = _get_server_c(dataset_name, in_dim, num_classes).to(DEVICE)
+    use_cifar10_sota = _is_cifar10(dataset_name)
+    if use_cifar10_sota:
+        opt, scheduler = _cifar10_sgd_bundle(clientA, clientB, serverC, epochs)
+    else:
+        opt = torch.optim.Adam(
+            list(clientA.parameters()) + list(clientB.parameters()) + list(serverC.parameters()),
+            lr=1e-3,
+        )
+        scheduler = None
+    loss_fn = _cifar10_loss_fn() if use_cifar10_sota else nn.CrossEntropyLoss()
+    N = len(Y_train)
+    ref_idx = stratified_ref_indices(Y_train, cfg.ref_frac, seed)
+    XA_train_use = apply_swap_with_protected_ref(
+        XA_clean_train, XA_swapped_train, ref_idx
+    )
+
+    # --- Reference warm-up (clean Party A only) ---
+    clientA.train()
+    clientB.train()
+    serverC.train()
+    for _ in range(cfg.ref_warmup_epochs):
+        perm = ref_idx[torch.randperm(len(ref_idx))]
+        for s in range(0, len(perm), batch_size):
+            e = min(len(perm), s + batch_size)
+            b = perm[s:e]
+            xa = XA_clean_train[b].to(DEVICE)
+            xb = XB_train[b].to(DEVICE)
+            y = Y_train[b].to(DEVICE)
+            if use_cifar10_sota:
+                xa = _augment_cifar10_half(xa)
+                xb = _augment_cifar10_half(xb)
+            za = clientA(xa)
+            zb = clientB(xb)
+            out = serverC(za, zb)
+            loss = loss_fn(out, y)
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+        if scheduler is not None:
+            scheduler.step()
+
+    # --- Fit reference trust model on clean embeddings (reference indices) ---
+    clientA.eval()
+    clientB.eval()
+    ha_chunks, hb_chunks, yr_chunks = [], [], []
+    with torch.no_grad():
+        for s in range(0, len(ref_idx), batch_size):
+            e = min(len(ref_idx), s + batch_size)
+            b = ref_idx[s:e]
+            xa = XA_clean_train[b].to(DEVICE)
+            xb = XB_train[b].to(DEVICE)
+            ha_chunks.append(clientA(xa))
+            hb_chunks.append(clientB(xb))
+            yr_chunks.append(Y_train[b].to(DEVICE))
+    ha_ref = torch.cat(ha_chunks, dim=0)
+    hb_ref = torch.cat(hb_chunks, dim=0)
+    y_ref = torch.cat(yr_chunks, dim=0)
+    h_a_dim = ha_ref.shape[1]
+    h_b_dim = hb_ref.shape[1]
+    engine = RGAREngine(cfg, h_a_dim, h_b_dim, num_classes, N).to(DEVICE)
+    engine.ref_model.fit_from_tensors(ha_ref, hb_ref, y_ref)
+
+    train_reconstructor(
+        engine.reconstructor,
+        clientA,
+        clientB,
+        XA_clean_train,
+        XB_train,
+        Y_train,
+        ref_idx,
+        DEVICE,
+        cfg.recon_epochs,
+        cfg.recon_lr,
+        weight_decay=cfg.recon_weight_decay,
+        batch_size=cfg.recon_batch_size,
+    )
+    engine.freeze_reconstructor()
+
+    clientA.train()
+    clientB.train()
+    serverC.train()
+    usable = N - (N % batch_size)
+    stats = {
+        "accepted": 0,
+        "flagged": 0,
+        "total": 0,
+        "suspicious_samples": 0,
+        "seen_samples": 0,
+    }
+    dev = torch.device(DEVICE)
+
+    for epoch in range(epochs):
+        perm = torch.randperm(N)
+        for s in range(0, usable, batch_size):
+            e = s + batch_size
+            gix = perm[s:e]
+            xa = XA_train_use[gix].to(DEVICE)
+            xb = XB_train[gix].to(DEVICE)
+            y = Y_train[gix].to(DEVICE)
+            if use_cifar10_sota:
+                xa = _augment_cifar10_half(xa)
+                xb = _augment_cifar10_half(xb)
+            ha = clientA(xa)
+            hb = clientB(xb)
+            with torch.no_grad():
+                s_pair, e_a, e_b = engine.score_batch(
+                    ha.detach(), hb.detach(), y, gix.to(dev)
+                )
+                engine.accumulate_attribution(s_pair, e_a, e_b)
+                stats["suspicious_samples"] += int((s_pair > cfg.tau_pair).sum().item())
+                stats["seen_samples"] += int(y.numel())
+            sp_for_fuse = None if downweight_only else s_pair
+            ha_in, hb_in = engine.prepare_server_input(
+                ha,
+                hb,
+                y,
+                gix.to(dev),
+                training=True,
+                device=dev,
+                downweight_only=downweight_only,
+                s_pair=sp_for_fuse,
+            )
+            out = serverC(ha_in, hb_in)
+            loss = loss_fn(out, y)
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            with torch.no_grad():
+                engine.update_ema(ha.detach(), hb.detach(), gix.to(dev))
+            stats["accepted"] += 1
+            stats["total"] += 1
+        engine.end_epoch()
+        if scheduler is not None:
+            scheduler.step()
+
+    meta = engine.export_state_dict_meta()
+    meta["ref_frac"] = cfg.ref_frac
+    meta["ref_n"] = int(ref_idx.numel())
+    meta["downweight_only"] = downweight_only
+    ss = max(1, int(stats["seen_samples"]))
+    meta["attack_detect_rate_pct"] = 100.0 * float(stats["suspicious_samples"]) / float(ss)
+    return clientA, clientB, serverC, stats, meta
 
 
 @torch.no_grad()
@@ -1501,38 +1950,42 @@ def run_defense_suite_once(
     seed: int = SEED,
     XA_clean_train: Optional[torch.Tensor] = None,
     batch_size: int = BATCH_SIZE,
+    defense_keys: Optional[Set[str]] = None,
 ) -> Dict[str, Dict[str, Any]]:
+    """If defense_keys is set, only run those entries (others omitted from dict)."""
     results = {}
     for key, title in DEFENSE_ORDER:
+        if defense_keys is not None and key not in defense_keys:
+            continue
         _reset_everything(seed)
         if key == "none":
             A, B, C, stats = train_once(
                 XA_swapped, XB_train, Y_train, defense_name="none",
-                epochs=epochs, batch_size=batch_size,
+                epochs=epochs, batch_size=batch_size, dataset_name=dataset_name,
             )
         elif key == "cosine_ema":
             cos_def = CosineEMADefense(COS_EMA_THRESH, COS_EMA_BUF)
             A, B, C, stats = train_cosine_ema_stealth(
                 XA_swapped, XB_train, Y_train, epochs=epochs, defense=cos_def,
-                batch_size=batch_size,
+                batch_size=batch_size, dataset_name=dataset_name,
             )
         elif key == "per_label_drift":
             if XA_clean_train is None:
                 XA_clean_train = XA_swapped  # fallback
             A, B, C, stats = train_drift_stealth(
                 XA_clean_train, XA_swapped, XB_train, Y_train, epochs=epochs,
-                batch_size=batch_size,
+                batch_size=batch_size, dataset_name=dataset_name,
             )
         elif key == "cross_party_consistency":
             cpc_def = CrossPartyConsistencyDefense(CONSIST_COS_THR)
             A, B, C, stats = train_cross_consistency_stealth(
                 XA_swapped, XB_train, Y_train, epochs=epochs, defense=cpc_def,
-                batch_size=batch_size,
+                batch_size=batch_size, dataset_name=dataset_name,
             )
         else:
             A, B, C, stats = train_once(
                 XA_swapped, XB_train, Y_train, defense_name=key,
-                epochs=epochs, batch_size=batch_size,
+                epochs=epochs, batch_size=batch_size, dataset_name=dataset_name,
             )
         acc = evaluate(A, B, C, XA_test, XB_test, Y_test)
         accepted = int(stats.get("accepted", 0))

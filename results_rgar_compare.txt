@@ -1,0 +1,252 @@
+# RGAR vs legacy defenses — 2026-03-30T08:16:40.558864
+# dataset=MNIST train=5000 test=1000 epochs=5 seed=0 quick=True
+# swap_note: [INFO] PREDICTED clusters for MNIST (top-k farthest).
+# clean_acc_pct: 88.5000
+
+Defense                                        Acc%    detect%                extra
+----------------------------------------------------------------------------------
+No Defense                                    38.60        0.0                     
+Temporal Cosine-EMA Gate                      22.50       89.7                     
+Grad-Norm Clipping (detect-only)              38.60        0.0                     
+Per-Label Smashed-A Drift                     55.80        0.0                     
+Cross-Party Gradient Consistency               8.50      100.0                     
+AE Anomaly on Smashed-A (warm-up)             38.50        0.0                     
+Covariance Spectrum Drift                     29.80       63.6                     
+Frozen AE (clean-only)                        38.60        0.0                     
+Z-Norm & Var Guard                            38.50       10.8                     
+RGAR (full recon + trust)                     63.50        N/A rho_a=0.15 attrib_A=True
+RGAR (downweight-only)                        26.00        N/A rho_a=0.15 attrib_A=True
+# RGAR vs legacy defenses — 2026-03-30T08:37:02.337313
+# dataset=CIFAR10 train=1500 test=300 epochs=3 seed=0 quick=True
+# swap_note: [INFO] PREDICTED clusters for CIFAR10 (top-k farthest).
+# clean_acc_pct: 14.3333
+
+Defense                                        Acc%    detect%                extra
+----------------------------------------------------------------------------------
+No Defense                                    12.00        0.0                     
+Temporal Cosine-EMA Gate                      28.00       39.4                     
+Grad-Norm Clipping (detect-only)              11.00        0.0                     
+Per-Label Smashed-A Drift                      9.00        0.0                     
+Cross-Party Gradient Consistency               7.00      100.0                     
+AE Anomaly on Smashed-A (warm-up)             11.67        0.0                     
+Covariance Spectrum Drift                      8.00       90.9                     
+Frozen AE (clean-only)                        11.00        0.0                     
+Z-Norm & Var Guard                            12.33       69.7                     
+RGAR (full recon + trust)                     13.67        N/A rho_a=1.00 attrib_A=False
+RGAR (downweight-only)                        13.67        N/A rho_a=1.00 attrib_A=False
+# RGAR vs legacy defenses — 2026-03-30T08:39:28.743596
+# dataset=CIFAR10 train=5000 test=1000 epochs=5 seed=0 quick=True
+# swap_note: [INFO] PREDICTED clusters for CIFAR10 (top-k farthest).
+# clean_acc_pct: 37.5000
+
+Defense                                        Acc%    detect%                extra
+----------------------------------------------------------------------------------
+No Defense                                    12.90        0.0                     
+Temporal Cosine-EMA Gate                      22.70       89.7                     
+Grad-Norm Clipping (detect-only)              10.40        0.0                     
+Per-Label Smashed-A Drift                     23.90        0.0                     
+Cross-Party Gradient Consistency               8.90      100.0                     
+AE Anomaly on Smashed-A (warm-up)              9.50        0.0                     
+Covariance Spectrum Drift                      7.60       55.4                     
+Frozen AE (clean-only)                        10.40        0.0                     
+Z-Norm & Var Guard                            10.30       19.0                     
+RGAR (full recon + trust)                     19.70        N/A rho_a=0.15 attrib_A=True
+RGAR (downweight-only)                        19.40        N/A rho_a=0.15 attrib_A=True
+# RGAR vs legacy defenses — 2026-03-30T08:50:07.689559
+# dataset=MNIST train=5000 test=1000 epochs=50 seed=0 quick=False
+# swap_note: [INFO] PREDICTED clusters for MNIST (top-k farthest).
+# clean_acc_pct: 92.9000
+
+Defense                                        Acc%    detect%                extra
+----------------------------------------------------------------------------------
+No Defense                                    43.60        0.0                     
+Temporal Cosine-EMA Gate                      22.50       99.0                     
+Grad-Norm Clipping (detect-only)              43.60        0.0                     
+Per-Label Smashed-A Drift                     55.20        0.0                     
+Cross-Party Gradient Consistency               8.50      100.0                     
+AE Anomaly on Smashed-A (warm-up)             42.10        0.3                     
+Covariance Spectrum Drift                     43.60       12.6                     
+Frozen AE (clean-only)                        43.60        0.0                     
+Z-Norm & Var Guard                            42.90        3.3                     
+RGAR (full recon + trust)                     75.30      100.0 rho_a=0.08 attrib_A=True
+RGAR (downweight-only)                         4.20      100.0 rho_a=0.08 attrib_A=True
+# RGAR vs legacy defenses — 2026-03-31T04:42:29.117285
+# dataset=MNIST train=5000 test=1000 epochs=6 seed=0 quick=True legacy_defenses=all
+# swap_note: [INFO] PREDICTED clusters for MNIST (top-k farthest).
+# clean_acc_pct: 88.3000
+
+Defense                                        Acc%    detect%                extra
+----------------------------------------------------------------------------------
+No Defense                                    40.40        0.0                     
+Temporal Cosine-EMA Gate                      22.50       91.5                     
+Grad-Norm Clipping (detect-only)              40.40        0.0                     
+Per-Label Smashed-A Drift                     56.50        0.0                     
+Cross-Party Gradient Consistency               8.50      100.0                     
+AE Anomaly on Smashed-A (warm-up)             39.80        0.0                     
+Covariance Spectrum Drift                     33.80       58.5                     
+Frozen AE (clean-only)                        40.40        0.0                     
+Z-Norm & Var Guard                            40.50       10.3                     
+RGAR (full recon + trust)                     75.60      100.0 rho_a=0.08 attrib_A=True
+RGAR (downweight-only)                        37.80      100.0 rho_a=0.08 attrib_A=True
+# RGAR vs legacy defenses — 2026-03-31T04:53:53.134835
+# dataset=MNIST train=5000 test=1000 epochs=50 seed=0 quick=False legacy_defenses=all
+# swap_note: [INFO] PREDICTED clusters for MNIST (top-k farthest).
+# clean_acc_pct: 92.9000
+
+Defense                                        Acc%    detect%                extra
+----------------------------------------------------------------------------------
+No Defense                                    43.70        0.0                     
+Temporal Cosine-EMA Gate                      22.50       99.0                     
+Grad-Norm Clipping (detect-only)              43.70        0.0                     
+Per-Label Smashed-A Drift                     55.00        0.0                     
+Cross-Party Gradient Consistency               8.50      100.0                     
+AE Anomaly on Smashed-A (warm-up)             42.20        0.3                     
+Covariance Spectrum Drift                     43.60       12.6                     
+Frozen AE (clean-only)                        43.70        0.0                     
+Z-Norm & Var Guard                            43.10        3.3                     
+RGAR (full recon + trust)                     74.30      100.0 rho_a=0.08 attrib_A=True
+RGAR (downweight-only)                         4.60      100.0 rho_a=0.08 attrib_A=True
+# RGAR vs legacy defenses — 2026-03-31T05:01:47.732926
+# dataset=MNIST train=5000 test=1000 epochs=6 seed=0 quick=True legacy_defenses=all
+# swap_note: [INFO] PREDICTED clusters for MNIST (top-k farthest).
+# clean_acc_pct: 88.3000
+
+Defense                                        Acc%    detect%                extra
+----------------------------------------------------------------------------------
+No Defense                                    40.40        0.0                     
+Temporal Cosine-EMA Gate                      22.50       91.5                     
+Grad-Norm Clipping (detect-only)              40.40        0.0                     
+Per-Label Smashed-A Drift                     56.50        0.0                     
+Cross-Party Gradient Consistency               8.50      100.0                     
+AE Anomaly on Smashed-A (warm-up)             39.80        0.0                     
+Covariance Spectrum Drift                     33.80       58.5                     
+Frozen AE (clean-only)                        40.40        0.0                     
+Z-Norm & Var Guard                            40.50       10.3                     
+RGAR (full recon + trust)                     80.80      100.0 rho_a=0.12 attrib_A=True
+RGAR (downweight-only)                        53.70      100.0 rho_a=0.12 attrib_A=True
+# RGAR vs legacy defenses — 2026-03-31T05:07:30.246604
+# dataset=MNIST train=5000 test=1000 epochs=50 seed=0 quick=False legacy_defenses=all
+# swap_note: [INFO] PREDICTED clusters for MNIST (top-k farthest).
+# clean_acc_pct: 92.9000
+
+Defense                                        Acc%    detect%                extra
+----------------------------------------------------------------------------------
+No Defense                                    43.70        0.0                     
+Temporal Cosine-EMA Gate                      22.50       99.0                     
+Grad-Norm Clipping (detect-only)              43.70        0.0                     
+Per-Label Smashed-A Drift                     55.00        0.0                     
+Cross-Party Gradient Consistency               8.50      100.0                     
+AE Anomaly on Smashed-A (warm-up)             42.20        0.3                     
+Covariance Spectrum Drift                     43.60       12.6                     
+Frozen AE (clean-only)                        43.70        0.0                     
+Z-Norm & Var Guard                            43.10        3.3                     
+RGAR (full recon + trust)                     80.30      100.0 rho_a=0.12 attrib_A=True
+RGAR (downweight-only)                        26.70      100.0 rho_a=0.12 attrib_A=True
+# RGAR vs legacy defenses — 2026-03-31T05:11:54.031831
+# dataset=MNIST train=5000 test=1000 epochs=6 seed=0 quick=True legacy_defenses=all
+# swap_note: [INFO] PREDICTED clusters for MNIST (top-k farthest).
+# clean_acc_pct: 88.3000
+
+Defense                                        Acc%    detect%                extra
+----------------------------------------------------------------------------------
+No Defense                                    40.40        0.0                     
+Temporal Cosine-EMA Gate                      22.50       91.5                     
+Grad-Norm Clipping (detect-only)              40.40        0.0                     
+Per-Label Smashed-A Drift                     56.50        0.0                     
+Cross-Party Gradient Consistency               8.50      100.0                     
+AE Anomaly on Smashed-A (warm-up)             39.80        0.0                     
+Covariance Spectrum Drift                     33.80       58.5                     
+Frozen AE (clean-only)                        40.40        0.0                     
+Z-Norm & Var Guard                            40.50       10.3                     
+RGAR (full recon + trust)                     99.20      100.0 rho_a=0.12 attrib_A=True
+RGAR (downweight-only)                        76.00      100.0 rho_a=0.12 attrib_A=True
+# RGAR vs legacy defenses — 2026-03-31T05:19:53.977052
+# dataset=MNIST train=5000 test=1000 epochs=50 seed=0 quick=False legacy_defenses=all
+# swap_note: [INFO] PREDICTED clusters for MNIST (top-k farthest).
+# clean_acc_pct: 92.9000
+
+Defense                                        Acc%    detect%                extra
+----------------------------------------------------------------------------------
+No Defense                                    43.70        0.0                     
+Temporal Cosine-EMA Gate                      22.50       99.0                     
+Grad-Norm Clipping (detect-only)              43.70        0.0                     
+Per-Label Smashed-A Drift                     55.00        0.0                     
+Cross-Party Gradient Consistency               8.50      100.0                     
+AE Anomaly on Smashed-A (warm-up)             42.20        0.3                     
+Covariance Spectrum Drift                     43.60       12.6                     
+Frozen AE (clean-only)                        43.70        0.0                     
+Z-Norm & Var Guard                            43.10        3.3                     
+RGAR (full recon + trust)                     99.90      100.0 rho_a=0.12 attrib_A=True
+RGAR (downweight-only)                        85.90      100.0 rho_a=0.12 attrib_A=True
+# RGAR vs legacy defenses — 2026-03-31T05:26:39.664073
+# dataset=MNIST train=5000 test=1000 epochs=6 seed=0 quick=True legacy_defenses=all
+# swap_note: [INFO] PREDICTED clusters for MNIST (top-k farthest).
+# clean_acc_pct: 88.3000
+
+Defense                                        Acc%    detect%                extra
+----------------------------------------------------------------------------------
+No Defense                                    40.40        0.0                     
+Temporal Cosine-EMA Gate                      22.50       91.5                     
+Grad-Norm Clipping (detect-only)              40.40        0.0                     
+Per-Label Smashed-A Drift                     56.50        0.0                     
+Cross-Party Gradient Consistency               8.50      100.0                     
+AE Anomaly on Smashed-A (warm-up)             39.80        0.0                     
+Covariance Spectrum Drift                     33.80       58.5                     
+Frozen AE (clean-only)                        40.40        0.0                     
+Z-Norm & Var Guard                            40.50       10.3                     
+RGAR (full recon + trust)                     76.40      100.0 rho_a=0.12 attrib_A=True
+RGAR (downweight-only)                        53.70      100.0 rho_a=0.12 attrib_A=True
+# RGAR vs legacy defenses — 2026-03-31T05:28:02.100502
+# dataset=MNIST train=5000 test=1000 epochs=6 seed=0 quick=True legacy_defenses=all
+# swap_note: [INFO] PREDICTED clusters for MNIST (top-k farthest).
+# clean_acc_pct: 88.3000
+
+Defense                                        Acc%    detect%                extra
+----------------------------------------------------------------------------------
+No Defense                                    40.40        0.0                     
+Temporal Cosine-EMA Gate                      22.50       91.5                     
+Grad-Norm Clipping (detect-only)              40.40        0.0                     
+Per-Label Smashed-A Drift                     56.50        0.0                     
+Cross-Party Gradient Consistency               8.50      100.0                     
+AE Anomaly on Smashed-A (warm-up)             39.80        0.0                     
+Covariance Spectrum Drift                     33.80       58.5                     
+Frozen AE (clean-only)                        40.40        0.0                     
+Z-Norm & Var Guard                            40.50       10.3                     
+RGAR (full recon + trust)                     79.20      100.0 rho_a=0.12 attrib_A=True
+RGAR (downweight-only)                        53.70      100.0 rho_a=0.12 attrib_A=True
+# RGAR vs legacy defenses — 2026-03-31T05:31:46.549774
+# dataset=MNIST train=5000 test=1000 epochs=50 seed=0 quick=False legacy_defenses=all
+# swap_note: [INFO] PREDICTED clusters for MNIST (top-k farthest).
+# clean_acc_pct: 92.9000
+
+Defense                                        Acc%    detect%                extra
+----------------------------------------------------------------------------------
+No Defense                                    43.70        0.0                     
+Temporal Cosine-EMA Gate                      22.50       99.0                     
+Grad-Norm Clipping (detect-only)              43.70        0.0                     
+Per-Label Smashed-A Drift                     55.00        0.0                     
+Cross-Party Gradient Consistency               8.50      100.0                     
+AE Anomaly on Smashed-A (warm-up)             42.20        0.3                     
+Covariance Spectrum Drift                     43.60       12.6                     
+Frozen AE (clean-only)                        43.70        0.0                     
+Z-Norm & Var Guard                            43.10        3.3                     
+RGAR (full recon + trust)                     75.20      100.0 rho_a=0.12 attrib_A=True
+RGAR (downweight-only)                        26.70      100.0 rho_a=0.12 attrib_A=True
+# RGAR vs legacy defenses — 2026-03-31T05:35:43.256328
+# dataset=MNIST train=5000 test=1000 epochs=50 seed=0 quick=False legacy_defenses=all
+# swap_note: [INFO] PREDICTED clusters for MNIST (top-k farthest).
+# clean_acc_pct: 92.9000
+
+Defense                                        Acc%    detect%                extra
+----------------------------------------------------------------------------------
+No Defense                                    43.70        0.0                     
+Temporal Cosine-EMA Gate                      22.50       99.0                     
+Grad-Norm Clipping (detect-only)              43.70        0.0                     
+Per-Label Smashed-A Drift                     55.00        0.0                     
+Cross-Party Gradient Consistency               8.50      100.0                     
+AE Anomaly on Smashed-A (warm-up)             42.20        0.3                     
+Covariance Spectrum Drift                     43.60       12.6                     
+Frozen AE (clean-only)                        43.70        0.0                     
+Z-Norm & Var Guard                            43.10        3.3                     
+RGAR (full recon + trust)                     80.30      100.0 rho_a=0.12 attrib_A=True
+RGAR (downweight-only)                        26.70      100.0 rho_a=0.12 attrib_A=True

@@ -1,0 +1,10 @@
+dataset: Fashion-MNIST
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+train:
+  epochs: 25
+  batch_size: 128
+  lr: 0.001
+

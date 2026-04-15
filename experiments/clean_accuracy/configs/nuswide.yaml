@@ -1,0 +1,12 @@
+dataset: NUS-WIDE
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+train:
+  epochs: 50
+  batch_size: 512
+  lr: 0.001
+nuswide:
+  npz_path: ./data/nuswide/nuswide_preprocessed.npz
+

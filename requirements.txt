@@ -3,4 +3,8 @@ numpy
 scikit-learn
 scikit-image
 scipy
+# OpenML loaders in vfl/data/tabular.py
+pandas
+# Experiment configs (YAML)
+pyyaml
 # torchvision is used for datasets/augmentations; install with torch together (see README)

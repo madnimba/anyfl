@@ -1,0 +1,14 @@
+dataset: MNIST
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+  train_samples: null
+  test_samples: null
+  tabular_train_fraction: 0.85
+train:
+  epochs: 20
+  batch_size: 128
+  lr: 0.001
+  weight_decay: 0.0
+

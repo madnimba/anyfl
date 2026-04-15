@@ -52,7 +52,8 @@ def main():
         Y_test = Y_all[n_train_req : n_train_req + n_test_req]
 
         cleanA, cleanB, cleanC, _ = train_once(
-            XA_train, XB_train, Y_train, defense_name="none", epochs=EPOCHS
+            XA_train, XB_train, Y_train, defense_name="none", epochs=EPOCHS,
+            dataset_name=dataset_name,
         )
         acc_clean = evaluate(cleanA, cleanB, cleanC, XA_test, XB_test, Y_test)
         print(f"[CLEAN] Accuracy: {acc_clean*100:.2f}%")

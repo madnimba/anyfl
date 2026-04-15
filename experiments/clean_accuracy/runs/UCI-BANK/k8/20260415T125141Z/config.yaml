@@ -1,0 +1,19 @@
+dataset: UCI-BANK
+k_clients: 8
+seed: 0
+data:
+  data_dir: ./data
+  train_samples: null
+  test_samples: null
+  seed: 0
+  tabular_train_fraction: 0.85
+train:
+  epochs: 60
+  batch_size: 512
+  lr: 0.001
+  weight_decay: 0.0
+  device: cuda
+  multilabel_threshold: 0.5
+model: null
+nuswide: null
+run_name: null

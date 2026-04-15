@@ -1,0 +1,8 @@
+{
+  "dataset": "UCI-BANK",
+  "k_clients": 8,
+  "metrics": {
+    "accuracy": 0.6390445232391357
+  },
+  "task": "multiclass"
+}
