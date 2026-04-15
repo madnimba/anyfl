@@ -13,7 +13,9 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from vfl.data.registry import DatasetRequest, load_dataset
-from vfl.models.registry import build_kparty_modules, default_model_config
+from vfl.models.lr_vfl import KPartyLogReg
+from vfl.models.split_vision import KPartySplitLeNet, KPartySplitResNet, SplitResNetSpec
+from vfl.models.tabular_mlp_vfl import KPartyTabularMLP
 from vfl.partition.kway import partition_image_width, partition_tabular_features
 from vfl.train.loop import TrainConfig, train_clean
 from vfl.utils.config import ExperimentConfig, dump_config_yaml, load_experiment_config
@@ -40,17 +42,22 @@ def run_one(cfg: ExperimentConfig, repo_root: str, out_base: str) -> str:
     X_parts_train_t = tuple(X_parts_train)
     X_parts_test_t = tuple(X_parts_test)
 
-    # Build model config (default unless user provided explicit)
-    model_cfg = cfg.model or default_model_config(ds.name, ds.task, cfg.k_clients)
-    model_cfg = type(model_cfg)(
-        dataset=model_cfg.dataset,
-        task=ds.task,
-        k_clients=cfg.k_clients,
-        encoder=model_cfg.encoder,
-        server=model_cfg.server,
-    )
-
-    clients, server = build_kparty_modules(X_parts_train_t, out_dim=ds.num_classes if ds.task == "multiclass" else ds.num_classes, cfg=model_cfg)
+    # Build model following common VFL baselines per dataset
+    dname = ds.name.strip().upper()
+    if dname in {"NUS-WIDE", "NUSWIDE"}:
+        in_dims = tuple(int(p.shape[-1]) for p in X_parts_train_t)
+        model = KPartyLogReg(in_dims=in_dims)
+    elif _is_image_tensor(ds.X_train) and dname in {"MNIST", "FASHIONMNIST", "FASHION-MNIST"}:
+        in_ch = int(ds.X_train.shape[1])
+        model = KPartySplitLeNet(in_ch=in_ch, out_dim=ds.num_classes, k_clients=cfg.k_clients, cut=1)
+    elif _is_image_tensor(ds.X_train) and dname in {"CIFAR10", "CIFAR-10", "CIFAR100", "CIFAR-100", "STL10", "STL-10"}:
+        in_ch = int(ds.X_train.shape[1])
+        spec = SplitResNetSpec(base=64, cut=1)
+        model = KPartySplitResNet(in_ch=in_ch, out_dim=ds.num_classes, k_clients=cfg.k_clients, spec=spec)
+    else:
+        in_dims = tuple(int(p.shape[-1]) for p in X_parts_train_t)
+        out_dim = ds.num_classes
+        model = KPartyTabularMLP(in_dims=in_dims, out_dim=out_dim, emb_dim=128, hidden=512, dropout=0.1)
 
     # Run dir + metadata
     paths = make_run_dir(out_base, ds.name, cfg.k_clients, run_name=cfg.run_name)
@@ -65,8 +72,7 @@ def run_one(cfg: ExperimentConfig, repo_root: str, out_base: str) -> str:
     # Train/eval
     train_cfg = cfg.train
     metrics = train_clean(
-        clients=clients,
-        server=server,
+        model=model,
         X_parts_train=X_parts_train_t,
         y_train=ds.y_train,
         X_parts_test=X_parts_test_t,

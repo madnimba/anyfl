@@ -4,9 +4,11 @@ seed: 0
 data:
   data_dir: ./data
 train:
-  epochs: 50
-  batch_size: 512
-  lr: 0.001
+  epochs: 30
+  batch_size: 1024
+  lr: 0.01
 nuswide:
-  npz_path: ./data/nuswide/nuswide_preprocessed.npz
+  npz_path: ./data/nuswide/nuswide_bow500_binary.npz
+  concept_pos: sky
+  concept_neg: clouds
 

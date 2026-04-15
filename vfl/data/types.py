@@ -37,13 +37,19 @@ class DataConfig:
 class NUSWIDEConfig:
     """
     NUS-WIDE requires manual download due to licensing.
-    We standardize a preprocessed NPZ file containing:
-      - X_train: float32 [N,D] (e.g., bag-of-words, tags, or image features)
-      - y_train: int64/bool [N,C] multi-hot
-      - X_test, y_test similarly
+    We standardize a preprocessed NPZ file for the common VFL protocol:
+      - Use BoW_int (500-D SIFT bag-of-words low-level features).
+      - Convert multi-label concepts into a *binary* 2-class task by selecting two concepts
+        (e.g., 'sky' vs 'clouds') and keeping only samples belonging to exactly one concept.
+
+    NPZ schema (binary classification):
+      - X_train: float32 [N,500]
+      - y_train: int64 [N] in {0,1}
+      - X_test: float32 [M,500]
+      - y_test: int64 [M] in {0,1}
     """
 
     npz_path: str
-    # Optional: restrict to top-K labels by frequency, applied at preprocessing time.
-    num_labels: Optional[int] = None
+    concept_pos: str = "sky"
+    concept_neg: str = "clouds"
 

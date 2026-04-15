@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Dict, Literal, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -26,17 +26,8 @@ def _make_loader(X_parts: Tuple[torch.Tensor, ...], y: torch.Tensor, batch_size:
     return DataLoader(ds, batch_size=batch_size, shuffle=shuffle, drop_last=False)
 
 
-def forward_kparty(clients: nn.ModuleList, server: nn.Module, x_parts: List[torch.Tensor]) -> torch.Tensor:
-    zs = []
-    for i, enc in enumerate(clients):
-        zs.append(enc(x_parts[i]))
-    z = torch.cat(zs, dim=1)
-    return server(z)
-
-
 def train_clean(
-    clients: nn.ModuleList,
-    server: nn.Module,
+    model: nn.Module,
     X_parts_train: Tuple[torch.Tensor, ...],
     y_train: torch.Tensor,
     X_parts_test: Tuple[torch.Tensor, ...],
@@ -45,14 +36,12 @@ def train_clean(
     cfg: TrainConfig,
 ) -> Dict[str, float]:
     device = torch.device(cfg.device)
-    clients = clients.to(device)
-    server = server.to(device)
+    model = model.to(device)
 
     train_loader = _make_loader(X_parts_train, y_train, cfg.batch_size, shuffle=True)
     test_loader = _make_loader(X_parts_test, y_test, cfg.batch_size, shuffle=False)
 
-    params = list(clients.parameters()) + list(server.parameters())
-    opt = torch.optim.Adam(params, lr=cfg.lr, weight_decay=cfg.weight_decay)
+    opt = torch.optim.Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
 
     if task == "multiclass":
         loss_fn = nn.CrossEntropyLoss()
@@ -60,14 +49,13 @@ def train_clean(
         loss_fn = nn.BCEWithLogitsLoss()
 
     for _ in range(int(cfg.epochs)):
-        clients.train()
-        server.train()
+        model.train()
         for batch in train_loader:
             *x_parts, y = batch
             x_parts = [t.to(device) for t in x_parts]
             y = y.to(device)
             opt.zero_grad(set_to_none=True)
-            logits = forward_kparty(clients, server, x_parts)
+            logits = model(*x_parts)
             if task == "multiclass":
                 loss = loss_fn(logits, y)
             else:
@@ -76,15 +64,14 @@ def train_clean(
             opt.step()
 
     # Eval (collect logits for full-metric computation)
-    clients.eval()
-    server.eval()
+    model.eval()
     all_logits = []
     all_y = []
     with torch.no_grad():
         for batch in test_loader:
             *x_parts, y = batch
             x_parts = [t.to(device) for t in x_parts]
-            logits = forward_kparty(clients, server, x_parts)
+            logits = model(*x_parts)
             all_logits.append(logits.detach().cpu())
             all_y.append(y.detach().cpu())
     logits = torch.cat(all_logits, dim=0)
