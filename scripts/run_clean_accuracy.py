@@ -26,6 +26,11 @@ def _is_image_tensor(X: torch.Tensor) -> bool:
     return X.ndim == 4  # [N,C,H,W]
 
 
+def _is_cuda_oom(err: BaseException) -> bool:
+    msg = str(err).lower()
+    return "cuda out of memory" in msg or "cublas" in msg and "alloc" in msg
+
+
 def run_one(cfg: ExperimentConfig, repo_root: str, out_base: str) -> str:
     set_global_seed(cfg.seed)
     # Load dataset
@@ -88,6 +93,13 @@ def run_one(cfg: ExperimentConfig, repo_root: str, out_base: str) -> str:
 def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(description="Run clean K-party VFL accuracy (reproducible)")
     p.add_argument("--config", type=str, help="Path to YAML config")
+    p.add_argument(
+        "--vram_profile",
+        type=str,
+        default="auto",
+        choices=["auto", "vram32", "fallback"],
+        help="auto=try VRAM32 config first then fallback on OOM; fallback=use --config only; vram32=use matching config from configs_vram32/",
+    )
     p.add_argument("--out_base", type=str, default="experiments/clean_accuracy/runs")
     p.add_argument("--dataset", type=str, default=None, help="Override dataset in config")
     p.add_argument("--k", type=int, nargs="*", default=None, help="Override k_clients; can pass multiple to sweep")
@@ -99,12 +111,67 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.dataset is not None:
         cfg = type(cfg)(**{**cfg.__dict__, "dataset": args.dataset})
 
+    # Resolve optional VRAM32 alternate config path
+    vram32_cfg_path = None
+    if args.vram_profile in {"auto", "vram32"}:
+        base = os.path.basename(args.config)
+        vram32_cfg_path = os.path.join("experiments", "clean_accuracy", "configs_vram32", base)
+        if not os.path.isfile(vram32_cfg_path):
+            vram32_cfg_path = None
+
     ks = args.k if args.k is not None and len(args.k) else [cfg.k_clients]
     for k in ks:
-        cfg_k = type(cfg)(**{**cfg.__dict__, "k_clients": int(k)})
-        out_dir = run_one(cfg_k, repo_root=repo_root, out_base=args.out_base)
-        print(f"[OK] Wrote run to: {out_dir}", flush=True)
+        cfg_fallback = type(cfg)(**{**cfg.__dict__, "k_clients": int(k)})
+        cfg_try = cfg_fallback
+        if vram32_cfg_path is not None and args.vram_profile in {"auto", "vram32"}:
+            cfg32 = load_experiment_config(vram32_cfg_path)
+            # keep dataset override and requested k
+            cfg32 = type(cfg32)(**{**cfg32.__dict__, "dataset": cfg_fallback.dataset, "k_clients": int(k)})
+            cfg_try = cfg32
+
+        try:
+            out_dir = run_one(cfg_try, repo_root=repo_root, out_base=args.out_base)
+            _print_metrics_summary(out_dir)
+            print(f"[OK] Wrote run to: {out_dir}", flush=True)
+        except RuntimeError as e:
+            if args.vram_profile == "auto" and _is_cuda_oom(e):
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                out_dir = run_one(cfg_fallback, repo_root=repo_root, out_base=args.out_base)
+                _print_metrics_summary(out_dir, note="fallback_after_oom")
+                print(f"[OK] (fallback after OOM) Wrote run to: {out_dir}", flush=True)
+            else:
+                raise
     return 0
+
+
+def _print_metrics_summary(run_dir: str, note: Optional[str] = None) -> None:
+    import json
+
+    path = os.path.join(run_dir, "metrics.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            obj = json.load(f)
+    except Exception as e:
+        print(f"[METRICS] Could not read {path}: {e}", flush=True)
+        return
+
+    ds = obj.get("dataset", "?")
+    k = obj.get("k_clients", "?")
+    metrics = obj.get("metrics", {}) or {}
+    # Put accuracy first if present
+    parts = []
+    if "accuracy" in metrics:
+        parts.append(f"accuracy={float(metrics['accuracy'])*100:.2f}%")
+    for key, val in metrics.items():
+        if key == "accuracy":
+            continue
+        try:
+            parts.append(f"{key}={float(val):.4f}")
+        except Exception:
+            parts.append(f"{key}={val}")
+    note_s = f" note={note}" if note else ""
+    print(f"[METRICS]{note_s} dataset={ds} k={k} " + " ".join(parts), flush=True)
 
 
 if __name__ == "__main__":

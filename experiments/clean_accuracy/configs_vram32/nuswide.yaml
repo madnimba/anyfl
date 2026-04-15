@@ -1,0 +1,13 @@
+dataset: NUS-WIDE
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+train:
+  epochs: 30
+  batch_size: 16384
+  lr: 0.01
+nuswide:
+  npz_path: ./data/nuswide/nuswide_bow500_binary.npz
+  concept_pos: sky
+  concept_neg: clouds

@@ -1,0 +1,9 @@
+dataset: MNIST
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+train:
+  epochs: 20
+  batch_size: 2048
+  lr: 0.001

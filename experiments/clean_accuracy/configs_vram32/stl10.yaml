@@ -1,0 +1,10 @@
+dataset: STL-10
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+train:
+  epochs: 100
+  batch_size: 256
+  lr: 0.001
+  weight_decay: 0.0005

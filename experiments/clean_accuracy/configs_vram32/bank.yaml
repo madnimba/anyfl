@@ -1,0 +1,10 @@
+dataset: UCI-BANK
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+  tabular_train_fraction: 0.85
+train:
+  epochs: 60
+  batch_size: 8192
+  lr: 0.001

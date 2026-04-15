@@ -1,0 +1,10 @@
+dataset: CIFAR-100
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+train:
+  epochs: 120
+  batch_size: 384
+  lr: 0.001
+  weight_decay: 0.0005

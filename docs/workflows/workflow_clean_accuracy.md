@@ -30,6 +30,16 @@ pip install -r requirements.txt
 python scripts/run_clean_accuracy.py --config experiments/clean_accuracy/configs/mnist.yaml --k 2
 ```
 
+### VRAM profiles (default behavior)
+From now on, runners use this policy:
+- **Try 32GB VRAM settings first**, if a matching config exists in `experiments/clean_accuracy/configs_vram32/`.
+- If a **CUDA out-of-memory** occurs, automatically **retry with the original config** (fallback / 8GB-safe).
+
+You can control this with `--vram_profile`:
+- `--vram_profile auto` (default): try VRAM32 then fallback on OOM
+- `--vram_profile vram32`: only VRAM32 config (error if it OOMs)
+- `--vram_profile fallback`: only the provided `--config`
+
 ### Run a sweep of K clients
 
 ```bash
