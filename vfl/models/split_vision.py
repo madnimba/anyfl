@@ -151,8 +151,12 @@ class LeNetClient(nn.Module):
         super().__init__()
         # cut=0 after conv1; cut=1 after conv2
         self.cut = int(cut)
-        self.conv1 = nn.Sequential(nn.Conv2d(in_ch, 32, 5, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(2))
-        self.conv2 = nn.Sequential(nn.Conv2d(32, 64, 5, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(2))
+        # Important: pooling must happen *after* smashed activations are stitched back
+        # together. If each client pools independently, odd intermediate widths cause
+        # floor-rounding and the stitched tensor shrinks (e.g. 28 split into 14+14:
+        # 14->7->3, giving 6 instead of 7 after two pools).
+        self.conv1 = nn.Sequential(nn.Conv2d(in_ch, 32, 5, padding=2), nn.ReLU(inplace=True))
+        self.conv2 = nn.Sequential(nn.Conv2d(32, 64, 5, padding=2), nn.ReLU(inplace=True))
         if self.cut not in {0, 1}:
             raise ValueError("cut must be 0 or 1 for LeNetClient")
 
@@ -167,16 +171,25 @@ class LeNetServer(nn.Module):
     def __init__(self, out_dim: int, cut: int = 1):
         super().__init__()
         self.cut = int(cut)
-        # If cut=0, we still need conv2; if cut=1, go to FC.
-        self.conv2 = nn.Sequential(nn.Conv2d(32, 64, 5, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(2))
-        # input spatial depends on 28x28 split slices stitched back to full width before FC
+        # Pooling happens on the stitched (full-width) smashed activations to keep
+        # dimensions consistent across any k-way width partitioning.
+        self.pool1 = nn.MaxPool2d(2)
+        self.conv2 = nn.Sequential(nn.Conv2d(32, 64, 5, padding=2), nn.ReLU(inplace=True))
+        self.pool2 = nn.MaxPool2d(2)
+        # input spatial depends on 28x28 stitched back to full width before FC
         self.fc1 = nn.Linear(64 * 7 * 7, 256)
         self.fc2 = nn.Linear(256, out_dim)
 
     def forward(self, smashed_full: torch.Tensor) -> torch.Tensor:
         h = smashed_full
         if self.cut == 0:
+            h = self.pool1(h)
             h = self.conv2(h)
+            h = self.pool2(h)
+        else:
+            # cut=1 would require pooling-before-conv2, but pooling must be done on
+            # stitched activations for shape consistency. Use cut=0 for SplitLeNet.
+            raise ValueError("LeNetServer cut=1 is not supported; use cut=0 for SplitLeNet.")
         h = h.flatten(1)
         h = F.relu(self.fc1(h), inplace=True)
         return self.fc2(h)

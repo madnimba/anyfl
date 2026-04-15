@@ -66,7 +66,8 @@ def run_one(cfg: ExperimentConfig, repo_root: str, out_base: str) -> str:
         model = KPartyBankPaperMLP(in_dims=in_dims)
     elif _is_image_tensor(ds.X_train) and dname in {"MNIST", "FASHIONMNIST", "FASHION-MNIST"}:
         in_ch = int(ds.X_train.shape[1])
-        model = KPartySplitLeNet(in_ch=in_ch, out_dim=ds.num_classes, k_clients=cfg.k_clients, cut=1)
+        # Use cut=0 so pooling happens on stitched activations (shape-stable for any k).
+        model = KPartySplitLeNet(in_ch=in_ch, out_dim=ds.num_classes, k_clients=cfg.k_clients, cut=0)
     elif _is_image_tensor(ds.X_train) and dname in {"CIFAR10", "CIFAR-10", "CIFAR100", "CIFAR-100", "STL10", "STL-10"}:
         # Use embedding-fusion pipeline with dataset-specific strong encoders (see vfl/models/encoders.py presets).
         mc = default_model_config(dname, ds.task, cfg.k_clients)
