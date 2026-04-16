@@ -5,3 +5,6 @@ __pycache__
 cifar-10-batches-py
 clusters
 FashionMNIST
+data
+docs
+experiments/clustering/*
