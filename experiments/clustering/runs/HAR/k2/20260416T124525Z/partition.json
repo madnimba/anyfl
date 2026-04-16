@@ -1,0 +1,18 @@
+{
+  "input_shape": [
+    8754,
+    561
+  ],
+  "k_clients": 2,
+  "kind": "tabular_features",
+  "slices": [
+    [
+      0,
+      281
+    ],
+    [
+      281,
+      561
+    ]
+  ]
+}

@@ -1,0 +1,23 @@
+dataset: NUS-WIDE
+k_clients: 2
+seed: 42
+aux_labeled_frac: 0.03
+out_base: experiments/clustering/runs
+export_cluster_dir: ./clusters
+clustering:
+  pretrain_epochs: 0
+  supcon_epochs: 0
+  batch_size: 512
+  lr_pretrain: 0.01
+  lr_supcon: 0.001
+  temperature: 0.2
+  supcon_temperature: 0.17
+  backend: gmm
+  gmm_covariance: diag
+  device: cpu
+data:
+  data_dir: ./data
+nuswide:
+  npz_path: ./data/nuswide/nuswide_bow500_binary.npz
+  concept_pos: sky
+  concept_neg: clouds

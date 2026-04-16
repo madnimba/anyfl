@@ -1,0 +1,86 @@
+{
+  "aux_labeled_frac": 0.03,
+  "cluster_artifact_ids": {
+    "conf": "experiments/clustering/runs/MUSHROOM/k2/20260416T124530Z/artifacts/MUSHROOM_conf.npy",
+    "ids": "experiments/clustering/runs/MUSHROOM/k2/20260416T124530Z/artifacts/MUSHROOM_ids.npy"
+  },
+  "dataset": "UCI-MUSHROOM",
+  "export_prefix": "MUSHROOM",
+  "k_clients": 2,
+  "metrics": {
+    "ami": 0.013572050729506208,
+    "ari": 0.012690235157445466,
+    "baseline": {
+      "random_ami": 9.102042194030208e-05,
+      "random_ari": 8.586951259870276e-05,
+      "random_nmi": 0.00019573554661292349
+    },
+    "completeness": 0.013908039307585546,
+    "confusion_cluster_by_class": [
+      [
+        2050,
+        2179
+      ],
+      [
+        1669,
+        1007
+      ]
+    ],
+    "homogeneity": 0.013454067403874184,
+    "hungarian_accuracy": 0.5572773352643012,
+    "hungarian_cluster_to_class": {
+      "0": 1,
+      "1": 0
+    },
+    "n_clusters": 2,
+    "n_samples": 6905,
+    "nmi": 0.013677287372146572,
+    "num_classes": 2,
+    "per_class": [
+      {
+        "class": 0,
+        "dominant_cluster": 0,
+        "entropy_clusters": 0.6878902793322841,
+        "n": 3719,
+        "top_cluster_mass": 0.5512234471632159
+      },
+      {
+        "class": 1,
+        "dominant_cluster": 0,
+        "entropy_clusters": 0.623871805027969,
+        "n": 3186,
+        "top_cluster_mass": 0.6839296924042687
+      }
+    ],
+    "per_cluster": [
+      {
+        "cluster": 0,
+        "majority_class": 1,
+        "purity": 0.5152518325845353,
+        "size": 4229,
+        "top2_mass": 1.0
+      },
+      {
+        "cluster": 1,
+        "majority_class": 0,
+        "purity": 0.6236920777279522,
+        "size": 2676,
+        "top2_mass": 1.0
+      }
+    ],
+    "purity": 0.5572773352643012,
+    "v_measure": 0.013677287372146574
+  },
+  "train_meta": {
+    "gmm_overspec": 12,
+    "gmm_restarts": 10,
+    "pca_dim": 58,
+    "pipeline": "tabular_gmm",
+    "split": {
+      "frac_effective": 0.029833454018826935,
+      "frac_requested": 0.03,
+      "n_labeled": 206,
+      "n_unlabeled": 6699
+    }
+  }
+}

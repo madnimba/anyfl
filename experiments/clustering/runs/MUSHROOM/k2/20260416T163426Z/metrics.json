@@ -1,0 +1,204 @@
+{
+  "aux_labeled_frac": 0.03,
+  "cluster_artifact_ids": {
+    "conf": "experiments/clustering/runs/MUSHROOM/k2/20260416T163426Z/artifacts/MUSHROOM_conf.npy",
+    "ids": "experiments/clustering/runs/MUSHROOM/k2/20260416T163426Z/artifacts/MUSHROOM_ids.npy"
+  },
+  "dataset": "UCI-MUSHROOM",
+  "export_prefix": "MUSHROOM",
+  "k_clients": 2,
+  "metrics": {
+    "ami": 0.8604942811008893,
+    "ari": 0.9133131582335098,
+    "baseline": {
+      "random_ami": 9.102042194030208e-05,
+      "random_ari": 8.586951259870276e-05,
+      "random_nmi": 0.00019573554661292349
+    },
+    "completeness": 0.8628879735099528,
+    "confusion_cluster_by_class": [
+      [
+        3710,
+        144
+      ],
+      [
+        9,
+        3042
+      ]
+    ],
+    "homogeneity": 0.8581430314653791,
+    "hungarian_accuracy": 0.9778421433743664,
+    "hungarian_cluster_to_class": {
+      "0": 0,
+      "1": 1
+    },
+    "n_clusters": 2,
+    "n_samples": 6905,
+    "nmi": 0.8605089615029478,
+    "num_classes": 2,
+    "per_class": [
+      {
+        "class": 0,
+        "dominant_cluster": 0,
+        "entropy_clusters": 0.016995152143688574,
+        "n": 3719,
+        "top_cluster_mass": 0.9975799946222103
+      },
+      {
+        "class": 1,
+        "dominant_cluster": 1,
+        "entropy_clusters": 0.18412478819082292,
+        "n": 3186,
+        "top_cluster_mass": 0.9548022598870056
+      }
+    ],
+    "per_cluster": [
+      {
+        "cluster": 0,
+        "majority_class": 0,
+        "purity": 0.9626362221069019,
+        "size": 3854,
+        "top2_mass": 1.0
+      },
+      {
+        "cluster": 1,
+        "majority_class": 1,
+        "purity": 0.9970501474926253,
+        "size": 3051,
+        "top2_mass": 1.0
+      }
+    ],
+    "purity": 0.9778421433743664,
+    "v_measure": 0.8605089615029476
+  },
+  "train_meta": {
+    "bmm_final_restarts": 120,
+    "bmm_init_restarts": 20,
+    "daem": false,
+    "graph_refine": {
+      "alpha": 0.12,
+      "base_labeled_score": 0.8786407766990292,
+      "enabled": true,
+      "max_iter": 50,
+      "n_seeds": 907,
+      "picked": "label_spreading",
+      "refined_labeled_score": 1.0,
+      "seed_cap": 4000,
+      "seed_tau": 0.92,
+      "sigma": 0.2
+    },
+    "keep_top": 24,
+    "n_rounds": 2,
+    "overspec_k": 8,
+    "pipeline": "mushroom_mi_bmm_custom",
+    "rounds": [
+      {
+        "Kfit": 8,
+        "keep_top": 24,
+        "n_pseudo": 378,
+        "pseudo_tau": 0.85,
+        "round": 0,
+        "selected_idx": [
+          3,
+          2,
+          4,
+          7,
+          6,
+          1,
+          11,
+          12,
+          14,
+          9,
+          16,
+          15,
+          0,
+          18,
+          19,
+          56,
+          58,
+          10,
+          13,
+          5,
+          38,
+          8,
+          57,
+          41
+        ],
+        "selection": {
+          "picked": "kmeans",
+          "score": 0.8883495145631068
+        }
+      },
+      {
+        "Kfit": 8,
+        "keep_top": 24,
+        "n_pseudo": 1411,
+        "pseudo_tau": 0.85,
+        "round": 1,
+        "selected_idx": [
+          6,
+          7,
+          3,
+          2,
+          4,
+          11,
+          9,
+          15,
+          16,
+          18,
+          19,
+          58,
+          14,
+          12,
+          0,
+          41,
+          1,
+          10,
+          28,
+          30,
+          13,
+          32,
+          38,
+          17
+        ],
+        "selection": {
+          "picked": "kmeans",
+          "score": 0.8786407766990292
+        }
+      }
+    ],
+    "selected_feature_count": 24,
+    "selected_feature_indices": [
+      6,
+      7,
+      3,
+      2,
+      4,
+      11,
+      9,
+      15,
+      16,
+      18,
+      19,
+      58,
+      14,
+      12,
+      0,
+      41,
+      1,
+      10,
+      28,
+      30,
+      13,
+      32,
+      38,
+      17
+    ],
+    "split": {
+      "frac_effective": 0.029833454018826935,
+      "frac_requested": 0.03,
+      "n_labeled": 206,
+      "n_unlabeled": 6699
+    }
+  }
+}

@@ -1,0 +1,315 @@
+{
+  "aux_labeled_frac": 0.03,
+  "cluster_artifact_ids": {
+    "conf": "experiments/clustering/runs/CIFAR10/k2/20260416T124516Z/artifacts/CIFAR10_conf.npy",
+    "ids": "experiments/clustering/runs/CIFAR10/k2/20260416T124516Z/artifacts/CIFAR10_ids.npy"
+  },
+  "dataset": "CIFAR10",
+  "export_prefix": "CIFAR10",
+  "k_clients": 2,
+  "metrics": {
+    "ami": 0.04859098091566728,
+    "ari": 0.014361053303546558,
+    "baseline": {
+      "random_ami": -5.565959065547146e-05,
+      "random_ari": -2.872195734593418e-05,
+      "random_nmi": 0.00029628551174753386
+    },
+    "completeness": 0.059048057270195756,
+    "confusion_cluster_by_class": [
+      [
+        3181,
+        2430,
+        2492,
+        2016,
+        2496,
+        1765,
+        2394,
+        1733,
+        3182,
+        2208
+      ],
+      [
+        33,
+        120,
+        37,
+        56,
+        16,
+        22,
+        24,
+        54,
+        35,
+        108
+      ],
+      [
+        278,
+        559,
+        752,
+        896,
+        412,
+        1060,
+        414,
+        683,
+        295,
+        745
+      ],
+      [
+        115,
+        354,
+        540,
+        963,
+        774,
+        1088,
+        1094,
+        894,
+        132,
+        439
+      ],
+      [
+        19,
+        40,
+        138,
+        59,
+        236,
+        82,
+        106,
+        104,
+        17,
+        49
+      ],
+      [
+        168,
+        69,
+        281,
+        396,
+        181,
+        455,
+        254,
+        183,
+        102,
+        127
+      ],
+      [
+        12,
+        28,
+        117,
+        69,
+        244,
+        55,
+        505,
+        41,
+        13,
+        37
+      ],
+      [
+        58,
+        115,
+        97,
+        92,
+        135,
+        101,
+        67,
+        319,
+        32,
+        155
+      ],
+      [
+        1071,
+        1202,
+        514,
+        429,
+        462,
+        339,
+        138,
+        934,
+        1077,
+        957
+      ],
+      [
+        65,
+        83,
+        32,
+        24,
+        44,
+        33,
+        4,
+        55,
+        115,
+        175
+      ]
+    ],
+    "homogeneity": 0.041849981276473366,
+    "hungarian_accuracy": 0.1594,
+    "hungarian_cluster_to_class": {
+      "0": 0,
+      "1": 9,
+      "2": 5,
+      "3": 3,
+      "4": 4,
+      "5": 2,
+      "6": 6,
+      "7": 7,
+      "8": 1,
+      "9": 8
+    },
+    "n_clusters": 10,
+    "n_samples": 50000,
+    "nmi": 0.048983312793079034,
+    "num_classes": 10,
+    "per_class": [
+      {
+        "class": 0,
+        "dominant_cluster": 0,
+        "entropy_clusters": 1.1561455473870363,
+        "n": 5000,
+        "top_cluster_mass": 0.6362
+      },
+      {
+        "class": 1,
+        "dominant_cluster": 0,
+        "entropy_clusters": 1.4968563922082565,
+        "n": 5000,
+        "top_cluster_mass": 0.486
+      },
+      {
+        "class": 2,
+        "dominant_cluster": 0,
+        "entropy_clusters": 1.600083035461658,
+        "n": 5000,
+        "top_cluster_mass": 0.4984
+      },
+      {
+        "class": 3,
+        "dominant_cluster": 0,
+        "entropy_clusters": 1.6640472166823803,
+        "n": 5000,
+        "top_cluster_mass": 0.4032
+      },
+      {
+        "class": 4,
+        "dominant_cluster": 0,
+        "entropy_clusters": 1.630551101660301,
+        "n": 5000,
+        "top_cluster_mass": 0.4992
+      },
+      {
+        "class": 5,
+        "dominant_cluster": 0,
+        "entropy_clusters": 1.6817173697090824,
+        "n": 5000,
+        "top_cluster_mass": 0.353
+      },
+      {
+        "class": 6,
+        "dominant_cluster": 0,
+        "entropy_clusters": 1.544227659822524,
+        "n": 5000,
+        "top_cluster_mass": 0.4788
+      },
+      {
+        "class": 7,
+        "dominant_cluster": 0,
+        "entropy_clusters": 1.77547752257003,
+        "n": 5000,
+        "top_cluster_mass": 0.3466
+      },
+      {
+        "class": 8,
+        "dominant_cluster": 0,
+        "entropy_clusters": 1.1492593419730157,
+        "n": 5000,
+        "top_cluster_mass": 0.6364
+      },
+      {
+        "class": 9,
+        "dominant_cluster": 0,
+        "entropy_clusters": 1.6574468124802761,
+        "n": 5000,
+        "top_cluster_mass": 0.4416
+      }
+    ],
+    "per_cluster": [
+      {
+        "cluster": 0,
+        "majority_class": 8,
+        "purity": 0.13315478930409674,
+        "size": 23897,
+        "top2_mass": 0.26626773235134116
+      },
+      {
+        "cluster": 1,
+        "majority_class": 1,
+        "purity": 0.2376237623762376,
+        "size": 505,
+        "top2_mass": 0.4514851485148515
+      },
+      {
+        "cluster": 2,
+        "majority_class": 5,
+        "purity": 0.17394158188382014,
+        "size": 6094,
+        "top2_mass": 0.3209714473252379
+      },
+      {
+        "cluster": 3,
+        "majority_class": 6,
+        "purity": 0.17112466760519318,
+        "size": 6393,
+        "top2_mass": 0.34131080869701236
+      },
+      {
+        "cluster": 4,
+        "majority_class": 4,
+        "purity": 0.2776470588235294,
+        "size": 850,
+        "top2_mass": 0.44
+      },
+      {
+        "cluster": 5,
+        "majority_class": 5,
+        "purity": 0.20532490974729242,
+        "size": 2216,
+        "top2_mass": 0.38402527075812276
+      },
+      {
+        "cluster": 6,
+        "majority_class": 6,
+        "purity": 0.4504906333630687,
+        "size": 1121,
+        "top2_mass": 0.6681534344335415
+      },
+      {
+        "cluster": 7,
+        "majority_class": 7,
+        "purity": 0.27241673783091375,
+        "size": 1171,
+        "top2_mass": 0.40478223740392827
+      },
+      {
+        "cluster": 8,
+        "majority_class": 1,
+        "purity": 0.1687491225607188,
+        "size": 7123,
+        "top2_mass": 0.3199494594974028
+      },
+      {
+        "cluster": 9,
+        "majority_class": 9,
+        "purity": 0.2777777777777778,
+        "size": 630,
+        "top2_mass": 0.4603174603174603
+      }
+    ],
+    "purity": 0.16696,
+    "v_measure": 0.048983312793079034
+  },
+  "train_meta": {
+    "pipeline": "fixmatch_rgb",
+    "split": {
+      "frac_effective": 0.03,
+      "frac_requested": 0.03,
+      "n_labeled": 1500,
+      "n_unlabeled": 48500
+    }
+  }
+}

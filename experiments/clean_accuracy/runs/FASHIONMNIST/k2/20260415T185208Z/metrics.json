@@ -1,0 +1,8 @@
+{
+  "dataset": "FASHIONMNIST",
+  "k_clients": 2,
+  "metrics": {
+    "accuracy": 0.914900004863739
+  },
+  "task": "multiclass"
+}

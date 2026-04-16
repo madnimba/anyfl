@@ -1,0 +1,19 @@
+dataset: STL-10
+k_clients: 2
+seed: 42
+aux_labeled_frac: 0.03
+out_base: experiments/clustering/runs
+export_cluster_dir: ./clusters
+clustering:
+  pretrain_epochs: 300
+  supcon_epochs: 0
+  batch_size: 32
+  lr_pretrain: 0.1
+  lr_supcon: 0.0001
+  temperature: 0.2
+  supcon_temperature: 0.17
+  backend: gmm
+  gmm_covariance: diag
+  device: cuda
+data:
+  data_dir: ./data

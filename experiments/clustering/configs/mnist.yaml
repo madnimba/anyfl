@@ -1,0 +1,19 @@
+dataset: MNIST
+k_clients: 2
+seed: 42
+aux_labeled_frac: 0.03
+out_base: experiments/clustering/runs
+export_cluster_dir: ./clusters
+clustering:
+  pretrain_epochs: 60
+  supcon_epochs: 20
+  batch_size: 512
+  lr_pretrain: 0.001
+  lr_supcon: 0.0001
+  temperature: 0.2
+  supcon_temperature: 0.17
+  backend: gmm
+  gmm_covariance: diag
+  device: cuda
+data:
+  data_dir: ./data

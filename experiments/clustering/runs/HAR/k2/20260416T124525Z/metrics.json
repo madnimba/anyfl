@@ -1,0 +1,186 @@
+{
+  "aux_labeled_frac": 0.03,
+  "cluster_artifact_ids": {
+    "conf": "experiments/clustering/runs/HAR/k2/20260416T124525Z/artifacts/HAR_conf.npy",
+    "ids": "experiments/clustering/runs/HAR/k2/20260416T124525Z/artifacts/HAR_ids.npy"
+  },
+  "dataset": "UCI-HAR",
+  "export_prefix": "HAR",
+  "k_clients": 2,
+  "metrics": {
+    "ami": 0.6623344364786764,
+    "ari": 0.5760546141214993,
+    "baseline": {
+      "random_ami": 0.00024189353254697348,
+      "random_ari": 0.00019540338078651373,
+      "random_nmi": 0.0010409602208640695
+    },
+    "completeness": 0.6657993696630399,
+    "confusion_cluster_by_class": [
+      [
+        1156,
+        30,
+        16,
+        0,
+        0,
+        0
+      ],
+      [
+        81,
+        996,
+        142,
+        1,
+        0,
+        0
+      ],
+      [
+        240,
+        269,
+        1025,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        814,
+        343,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        404,
+        1125,
+        3
+      ],
+      [
+        0,
+        1,
+        0,
+        301,
+        166,
+        1641
+      ]
+    ],
+    "homogeneity": 0.6594433846111752,
+    "hungarian_accuracy": 0.7718757139593329,
+    "hungarian_cluster_to_class": {
+      "0": 0,
+      "1": 1,
+      "2": 2,
+      "3": 3,
+      "4": 4,
+      "5": 5
+    },
+    "n_clusters": 6,
+    "n_samples": 8754,
+    "nmi": 0.6626061351952636,
+    "num_classes": 6,
+    "per_class": [
+      {
+        "class": 0,
+        "dominant_cluster": 0,
+        "entropy_clusters": 0.6462792804680477,
+        "n": 1477,
+        "top_cluster_mass": 0.7826675693974272
+      },
+      {
+        "class": 1,
+        "dominant_cluster": 1,
+        "entropy_clusters": 0.6214008775895324,
+        "n": 1296,
+        "top_cluster_mass": 0.7685185185185185
+      },
+      {
+        "class": 2,
+        "dominant_cluster": 2,
+        "entropy_clusters": 0.43688413819598115,
+        "n": 1183,
+        "top_cluster_mass": 0.8664412510566357
+      },
+      {
+        "class": 3,
+        "dominant_cluster": 3,
+        "entropy_clusters": 1.0121185491575169,
+        "n": 1520,
+        "top_cluster_mass": 0.5355263157894737
+      },
+      {
+        "class": 4,
+        "dominant_cluster": 4,
+        "entropy_clusters": 0.8169857122508287,
+        "n": 1634,
+        "top_cluster_mass": 0.6884944920440637
+      },
+      {
+        "class": 5,
+        "dominant_cluster": 5,
+        "entropy_clusters": 0.013330953141592682,
+        "n": 1644,
+        "top_cluster_mass": 0.9981751824817519
+      }
+    ],
+    "per_cluster": [
+      {
+        "cluster": 0,
+        "majority_class": 0,
+        "purity": 0.961730449251248,
+        "size": 1202,
+        "top2_mass": 0.9866888519134775
+      },
+      {
+        "cluster": 1,
+        "majority_class": 1,
+        "purity": 0.8163934426229508,
+        "size": 1220,
+        "top2_mass": 0.9327868852459016
+      },
+      {
+        "cluster": 2,
+        "majority_class": 2,
+        "purity": 0.6681877444589309,
+        "size": 1534,
+        "top2_mass": 0.8435462842242504
+      },
+      {
+        "cluster": 3,
+        "majority_class": 3,
+        "purity": 0.7035436473638721,
+        "size": 1157,
+        "top2_mass": 1.0
+      },
+      {
+        "cluster": 4,
+        "majority_class": 4,
+        "purity": 0.7343342036553525,
+        "size": 1532,
+        "top2_mass": 0.9980417754569191
+      },
+      {
+        "cluster": 5,
+        "majority_class": 5,
+        "purity": 0.7780938833570412,
+        "size": 2109,
+        "top2_mass": 0.9208155523944997
+      }
+    ],
+    "purity": 0.7718757139593329,
+    "v_measure": 0.6626061351952637
+  },
+  "train_meta": {
+    "gmm_overspec": 12,
+    "gmm_restarts": 10,
+    "pca_dim": 64,
+    "pipeline": "tabular_gmm",
+    "split": {
+      "frac_effective": 0.029700708247658213,
+      "frac_requested": 0.03,
+      "n_labeled": 260,
+      "n_unlabeled": 8494
+    }
+  }
+}

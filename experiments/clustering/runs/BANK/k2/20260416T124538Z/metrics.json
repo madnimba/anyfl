@@ -1,0 +1,86 @@
+{
+  "aux_labeled_frac": 0.03,
+  "cluster_artifact_ids": {
+    "conf": "experiments/clustering/runs/BANK/k2/20260416T124538Z/artifacts/BANK_conf.npy",
+    "ids": "experiments/clustering/runs/BANK/k2/20260416T124538Z/artifacts/BANK_ids.npy"
+  },
+  "dataset": "UCI-BANK",
+  "export_prefix": "BANK",
+  "k_clients": 2,
+  "metrics": {
+    "ami": 0.009909187351975006,
+    "ari": 0.018239319906006104,
+    "baseline": {
+      "random_ami": -5.14037495460752e-06,
+      "random_ari": -1.1225335226226491e-05,
+      "random_nmi": 2.1094785589630963e-05
+    },
+    "completeness": 0.007590179352980174,
+    "confusion_cluster_by_class": [
+      [
+        18763,
+        1818
+      ],
+      [
+        13174,
+        2413
+      ]
+    ],
+    "homogeneity": 0.014377896625082086,
+    "hungarian_accuracy": 0.5854899358548994,
+    "hungarian_cluster_to_class": {
+      "0": 0,
+      "1": 1
+    },
+    "n_clusters": 2,
+    "n_samples": 36168,
+    "nmi": 0.009935400279201645,
+    "num_classes": 2,
+    "per_class": [
+      {
+        "class": 0,
+        "dominant_cluster": 0,
+        "entropy_clusters": 0.6777554111488415,
+        "n": 31937,
+        "top_cluster_mass": 0.58750039139556
+      },
+      {
+        "class": 1,
+        "dominant_cluster": 1,
+        "entropy_clusters": 0.6832261130612869,
+        "n": 4231,
+        "top_cluster_mass": 0.5703143464901914
+      }
+    ],
+    "per_cluster": [
+      {
+        "cluster": 0,
+        "majority_class": 0,
+        "purity": 0.9116660998007872,
+        "size": 20581,
+        "top2_mass": 1.0
+      },
+      {
+        "cluster": 1,
+        "majority_class": 0,
+        "purity": 0.8451915057419644,
+        "size": 15587,
+        "top2_mass": 1.0
+      }
+    ],
+    "purity": 0.8830181375801813,
+    "v_measure": 0.009935400279201645
+  },
+  "train_meta": {
+    "gmm_overspec": 12,
+    "gmm_restarts": 10,
+    "pca_dim": 25,
+    "pipeline": "tabular_gmm",
+    "split": {
+      "frac_effective": 0.029971245299712453,
+      "frac_requested": 0.03,
+      "n_labeled": 1084,
+      "n_unlabeled": 35084
+    }
+  }
+}

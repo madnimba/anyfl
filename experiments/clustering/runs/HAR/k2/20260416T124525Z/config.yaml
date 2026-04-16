@@ -1,0 +1,29 @@
+dataset: UCI-HAR
+k_clients: 2
+seed: 42
+aux_labeled_frac: 0.03
+data:
+  data_dir: ./data
+  train_samples: null
+  test_samples: null
+  seed: 0
+  tabular_train_fraction: 0.85
+clustering:
+  pretrain_epochs: 0
+  supcon_epochs: 0
+  batch_size: 256
+  lr_pretrain: 0.001
+  lr_supcon: 0.0001
+  weight_decay: 0.0
+  temperature: 0.2
+  supcon_temperature: 0.17
+  backend: gmm
+  gmm_covariance: diag
+  augment_cifar_style: false
+  device: cpu
+  proj_dim: 0
+model: null
+nuswide: null
+out_base: experiments/clustering/runs
+export_cluster_dir: ./clusters
+run_name: null

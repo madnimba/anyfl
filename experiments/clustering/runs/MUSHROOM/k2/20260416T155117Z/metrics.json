@@ -1,0 +1,99 @@
+{
+  "aux_labeled_frac": 0.03,
+  "cluster_artifact_ids": {
+    "conf": "experiments/clustering/runs/MUSHROOM/k2/20260416T155117Z/artifacts/MUSHROOM_conf.npy",
+    "ids": "experiments/clustering/runs/MUSHROOM/k2/20260416T155117Z/artifacts/MUSHROOM_ids.npy"
+  },
+  "dataset": "UCI-MUSHROOM",
+  "export_prefix": "MUSHROOM",
+  "k_clients": 2,
+  "metrics": {
+    "ami": 0.19219679195043982,
+    "ari": 0.2560721454035419,
+    "baseline": {
+      "random_ami": 9.102042194030208e-05,
+      "random_ari": 8.586951259870276e-05,
+      "random_nmi": 0.00019573554661292349
+    },
+    "completeness": 0.19208536270028007,
+    "confusion_cluster_by_class": [
+      [
+        2830,
+        816
+      ],
+      [
+        889,
+        2370
+      ]
+    ],
+    "homogeneity": 0.19247799375768251,
+    "hungarian_accuracy": 0.7530774800868936,
+    "hungarian_cluster_to_class": {
+      "0": 0,
+      "1": 1
+    },
+    "n_clusters": 2,
+    "n_samples": 6905,
+    "nmi": 0.19228147779497654,
+    "num_classes": 2,
+    "per_class": [
+      {
+        "class": 0,
+        "dominant_cluster": 0,
+        "entropy_clusters": 0.5499740154408509,
+        "n": 3719,
+        "top_cluster_mass": 0.7609572465716591
+      },
+      {
+        "class": 1,
+        "dominant_cluster": 1,
+        "entropy_clusters": 0.5689598713415468,
+        "n": 3186,
+        "top_cluster_mass": 0.743879472693032
+      }
+    ],
+    "per_cluster": [
+      {
+        "cluster": 0,
+        "majority_class": 0,
+        "purity": 0.7761930883159627,
+        "size": 3646,
+        "top2_mass": 1.0
+      },
+      {
+        "cluster": 1,
+        "majority_class": 1,
+        "purity": 0.7272169377109543,
+        "size": 3259,
+        "top2_mass": 1.0
+      }
+    ],
+    "purity": 0.7530774800868936,
+    "v_measure": 0.19228147779497654
+  },
+  "train_meta": {
+    "bmm_final_restarts": 30,
+    "bmm_init_restarts": 10,
+    "keep_top": 8,
+    "n_pseudo": 2060,
+    "pipeline": "mushroom_mi_bmm_custom",
+    "pseudo_tau": 0.9,
+    "selected_feature_count": 8,
+    "selected_feature_indices": [
+      2,
+      3,
+      1,
+      4,
+      11,
+      14,
+      7,
+      6
+    ],
+    "split": {
+      "frac_effective": 0.029833454018826935,
+      "frac_requested": 0.03,
+      "n_labeled": 206,
+      "n_unlabeled": 6699
+    }
+  }
+}

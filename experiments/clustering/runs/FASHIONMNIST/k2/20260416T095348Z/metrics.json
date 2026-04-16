@@ -1,0 +1,316 @@
+{
+  "aux_labeled_frac": 0.03,
+  "cluster_artifact_ids": {
+    "conf": "experiments/clustering/runs/FASHIONMNIST/k2/20260416T095348Z/artifacts/FASHIONMNIST_conf.npy",
+    "ids": "experiments/clustering/runs/FASHIONMNIST/k2/20260416T095348Z/artifacts/FASHIONMNIST_ids.npy"
+  },
+  "dataset": "FASHIONMNIST",
+  "export_prefix": "FASHIONMNIST",
+  "k_clients": 2,
+  "metrics": {
+    "ami": 0.688450657612826,
+    "ari": 0.5820406986190619,
+    "baseline": {
+      "random_ami": 3.36603178995578e-05,
+      "random_ari": 1.6858935746268357e-05,
+      "random_nmi": 0.0003269009599787594
+    },
+    "completeness": 0.6932769347138823,
+    "confusion_cluster_by_class": [
+      [
+        5402,
+        70,
+        60,
+        1220,
+        46,
+        3,
+        1708,
+        0,
+        28,
+        7
+      ],
+      [
+        9,
+        5583,
+        0,
+        162,
+        2,
+        0,
+        3,
+        0,
+        1,
+        0
+      ],
+      [
+        21,
+        0,
+        3816,
+        5,
+        1561,
+        0,
+        2040,
+        0,
+        0,
+        0
+      ],
+      [
+        54,
+        167,
+        27,
+        4033,
+        216,
+        0,
+        56,
+        0,
+        17,
+        1
+      ],
+      [
+        99,
+        69,
+        1179,
+        346,
+        3525,
+        0,
+        868,
+        0,
+        24,
+        0
+      ],
+      [
+        1,
+        0,
+        1,
+        0,
+        0,
+        5836,
+        0,
+        1341,
+        46,
+        394
+      ],
+      [
+        384,
+        110,
+        915,
+        231,
+        644,
+        5,
+        1311,
+        0,
+        382,
+        1
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        53,
+        0,
+        3756,
+        0,
+        77
+      ],
+      [
+        30,
+        1,
+        2,
+        3,
+        6,
+        29,
+        14,
+        6,
+        5502,
+        2
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        74,
+        0,
+        897,
+        0,
+        5518
+      ]
+    ],
+    "homogeneity": 0.6838725756902367,
+    "hungarian_accuracy": 0.7380333333333333,
+    "hungarian_cluster_to_class": {
+      "0": 0,
+      "1": 1,
+      "2": 2,
+      "3": 3,
+      "4": 4,
+      "5": 5,
+      "6": 6,
+      "7": 7,
+      "8": 8,
+      "9": 9
+    },
+    "n_clusters": 10,
+    "n_samples": 60000,
+    "nmi": 0.6885426446839286,
+    "num_classes": 10,
+    "per_class": [
+      {
+        "class": 0,
+        "dominant_cluster": 0,
+        "entropy_clusters": 0.43805871615517566,
+        "n": 6000,
+        "top_cluster_mass": 0.9003333333333333
+      },
+      {
+        "class": 1,
+        "dominant_cluster": 1,
+        "entropy_clusters": 0.34475886651433,
+        "n": 6000,
+        "top_cluster_mass": 0.9305
+      },
+      {
+        "class": 2,
+        "dominant_cluster": 2,
+        "entropy_clusters": 0.968826855500294,
+        "n": 6000,
+        "top_cluster_mass": 0.636
+      },
+      {
+        "class": 3,
+        "dominant_cluster": 3,
+        "entropy_clusters": 0.9880651850718704,
+        "n": 6000,
+        "top_cluster_mass": 0.6721666666666667
+      },
+      {
+        "class": 4,
+        "dominant_cluster": 4,
+        "entropy_clusters": 1.068916540660857,
+        "n": 6000,
+        "top_cluster_mass": 0.5875
+      },
+      {
+        "class": 5,
+        "dominant_cluster": 5,
+        "entropy_clusters": 0.15842291445622336,
+        "n": 6000,
+        "top_cluster_mass": 0.9726666666666667
+      },
+      {
+        "class": 6,
+        "dominant_cluster": 2,
+        "entropy_clusters": 1.3980470628301087,
+        "n": 6000,
+        "top_cluster_mass": 0.34
+      },
+      {
+        "class": 7,
+        "dominant_cluster": 7,
+        "entropy_clusters": 0.9191276849002947,
+        "n": 6000,
+        "top_cluster_mass": 0.626
+      },
+      {
+        "class": 8,
+        "dominant_cluster": 8,
+        "entropy_clusters": 0.357347792563817,
+        "n": 6000,
+        "top_cluster_mass": 0.917
+      },
+      {
+        "class": 9,
+        "dominant_cluster": 9,
+        "entropy_clusters": 0.3251837538679605,
+        "n": 6000,
+        "top_cluster_mass": 0.9196666666666666
+      }
+    ],
+    "per_cluster": [
+      {
+        "cluster": 0,
+        "majority_class": 0,
+        "purity": 0.6322565543071161,
+        "size": 8544,
+        "top2_mass": 0.8321629213483146
+      },
+      {
+        "cluster": 1,
+        "majority_class": 1,
+        "purity": 0.9692708333333333,
+        "size": 5760,
+        "top2_mass": 0.9973958333333334
+      },
+      {
+        "cluster": 2,
+        "majority_class": 2,
+        "purity": 0.5126964933494559,
+        "size": 7443,
+        "top2_mass": 0.7867795243853285
+      },
+      {
+        "cluster": 3,
+        "majority_class": 3,
+        "purity": 0.8823014657624152,
+        "size": 4571,
+        "top2_mass": 0.9295558958652373
+      },
+      {
+        "cluster": 4,
+        "majority_class": 4,
+        "purity": 0.5769230769230769,
+        "size": 6110,
+        "top2_mass": 0.769885433715221
+      },
+      {
+        "cluster": 5,
+        "majority_class": 5,
+        "purity": 0.7659797873736711,
+        "size": 7619,
+        "top2_mass": 0.9419871374196088
+      },
+      {
+        "cluster": 6,
+        "majority_class": 6,
+        "purity": 0.3291488827516947,
+        "size": 3983,
+        "top2_mass": 0.5588752196836555
+      },
+      {
+        "cluster": 7,
+        "majority_class": 7,
+        "purity": 0.9665465774575399,
+        "size": 3886,
+        "top2_mass": 0.9863612969634585
+      },
+      {
+        "cluster": 8,
+        "majority_class": 8,
+        "purity": 0.9833780160857909,
+        "size": 5595,
+        "top2_mass": 0.9887399463806971
+      },
+      {
+        "cluster": 9,
+        "majority_class": 9,
+        "purity": 0.8503621513330252,
+        "size": 6489,
+        "top2_mass": 0.9885960856834644
+      }
+    ],
+    "purity": 0.7380333333333333,
+    "v_measure": 0.6885426446839286
+  },
+  "train_meta": {
+    "gmm_overspec": 20,
+    "pipeline": "grayscale_vision",
+    "split": {
+      "frac_effective": 0.03,
+      "frac_requested": 0.03,
+      "n_labeled": 1800,
+      "n_unlabeled": 58200
+    }
+  }
+}
