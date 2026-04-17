@@ -4,7 +4,8 @@ Reproducible semi-supervised clustering on client-0 VFL view.
 
 Three dataset-aware pipelines:
   - Grayscale vision (MNIST, FashionMNIST): SimCLR + SupCon + self-training + GMM merge
-  - RGB vision (CIFAR-10/100, STL-10): FixMatch student/teacher + prototype+kNN refine
+  - RGB vision (CIFAR-10/100): SimCLR + linear probe + FixMatch + teacher vs GMM-merge pick
+  - RGB vision (STL-10): FixMatch student/teacher + prototype+kNN refine
   - Tabular / BoW (HAR, Mushroom, Bank, NUS-WIDE): PCA + over-specified GMM + merge
 
 Usage:
@@ -33,9 +34,13 @@ from vfl.clustering.semi_sup import (
     export_cluster_files,
     run_clustering_grayscale_vision,
     run_clustering_rgb_vision,
+    run_clustering_cifar_custom,
     run_clustering_tabular,
     run_clustering_tabular_binary,
     run_clustering_mushroom_custom,
+    run_clustering_har_custom,
+    run_clustering_bank_custom,
+    run_clustering_tabular_fixmatch,
 )
 from vfl.data.bank_special import balanced_bank_feature_split
 from vfl.data.registry import DatasetRequest, load_dataset
@@ -149,6 +154,121 @@ def _partition_mushroom_by_aux_mi(
     return parts, meta
 
 
+def _partition_continuous_by_aux_mi(
+    X: torch.Tensor,
+    y: torch.Tensor,
+    k_clients: int,
+    aux_labeled_frac: float,
+    seed: int,
+) -> tuple[list[torch.Tensor], dict]:
+    """
+    MI-rank continuous features using auxiliary labels, split into k_clients.
+    Client-0 gets the top-MI-ranked block (most informative features).
+    Used for HAR and similar continuous-feature tabular datasets.
+    """
+    from vfl.clustering.semi_sup import stratified_labeled_unlabeled
+
+    X_np = X.detach().cpu().numpy().astype(np.float32)
+    y_np = y.detach().cpu().numpy().astype(np.int64)
+    N, D = X_np.shape
+
+    lab_idx, _, split_meta = stratified_labeled_unlabeled(
+        y_np, float(aux_labeled_frac), int(seed),
+        num_classes=int(y_np.max()) + 1,
+    )
+
+    from sklearn.feature_selection import mutual_info_classif
+    mi = mutual_info_classif(
+        X_np[lab_idx], y_np[lab_idx],
+        discrete_features=False, random_state=int(seed),
+    )
+    order = np.argsort(-mi).astype(np.int64)
+
+    parts: list[torch.Tensor] = []
+    rank_slices: list[list[int]] = []
+    base = D // int(k_clients)
+    rem = D % int(k_clients)
+    start = 0
+    for i in range(int(k_clients)):
+        width = base + (1 if i < rem else 0)
+        end = min(D, start + width)
+        idx = order[start:end]
+        parts.append(X[:, idx])
+        rank_slices.append([int(start), int(end)])
+        start = end
+
+    meta = {
+        "kind": "tabular_features_ranked_aux",
+        "k_clients": int(k_clients),
+        "input_shape": [int(N), int(D)],
+        "ranking": "mutual_info_continuous_aux_labels",
+        "aux_split": split_meta,
+        "rank_slices": rank_slices,
+        "ranked_feature_order": order.tolist(),
+    }
+    return parts, meta
+
+
+def _partition_bank_by_aux_mi(
+    X: torch.Tensor,
+    y: torch.Tensor,
+    k_clients: int,
+    aux_labeled_frac: float,
+    seed: int,
+    num_dim: int = 0,
+) -> tuple[list[torch.Tensor], dict]:
+    """
+    Bank-specific MI-ranked partition handling mixed continuous+binary features.
+    Computes MI with correct discrete_features mask per column type.
+    Client-0 gets the most informative features.
+    """
+    from vfl.clustering.semi_sup import stratified_labeled_unlabeled
+
+    X_np = X.detach().cpu().numpy().astype(np.float32)
+    y_np = y.detach().cpu().numpy().astype(np.int64)
+    N, D = X_np.shape
+
+    lab_idx, _, split_meta = stratified_labeled_unlabeled(
+        y_np, float(aux_labeled_frac), int(seed),
+        num_classes=int(y_np.max()) + 1,
+    )
+
+    from sklearn.feature_selection import mutual_info_classif
+    discrete_mask = np.array(
+        [False] * min(num_dim, D) + [True] * max(0, D - num_dim)
+    )
+    mi = mutual_info_classif(
+        X_np[lab_idx], y_np[lab_idx],
+        discrete_features=discrete_mask, random_state=int(seed),
+    )
+    order = np.argsort(-mi).astype(np.int64)
+
+    parts: list[torch.Tensor] = []
+    rank_slices: list[list[int]] = []
+    base = D // int(k_clients)
+    rem = D % int(k_clients)
+    start = 0
+    for i in range(int(k_clients)):
+        width = base + (1 if i < rem else 0)
+        end = min(D, start + width)
+        idx = order[start:end]
+        parts.append(X[:, idx])
+        rank_slices.append([int(start), int(end)])
+        start = end
+
+    meta = {
+        "kind": "bank_features_ranked_aux",
+        "k_clients": int(k_clients),
+        "input_shape": [int(N), int(D)],
+        "num_dim": int(num_dim),
+        "ranking": "mutual_info_mixed_aux_labels",
+        "aux_split": split_meta,
+        "rank_slices": rank_slices,
+        "ranked_feature_order": order.tolist(),
+    }
+    return parts, meta
+
+
 def _resolve_device(req: str) -> str:
     if req == "cuda" and not torch.cuda.is_available():
         return "cpu"
@@ -156,7 +276,11 @@ def _resolve_device(req: str) -> str:
 
 
 def _print_metrics_line(dataset: str, prefix: str, metrics: dict) -> None:
-    keys = ("nmi", "ami", "ari", "purity", "hungarian_accuracy")
+    keys = (
+        "nmi", "ami", "ari", "purity", "hungarian_accuracy",
+        "macro_recall_matched", "min_recall_matched",
+        "macro_precision_matched", "min_precision_matched",
+    )
     parts = []
     for k in keys:
         if k in metrics and metrics[k] is not None:
@@ -171,17 +295,25 @@ def run_one(cfg: ClusteringExperimentConfig, repo_root: str) -> str:
     device = _resolve_device(ct.device)
     dname = ds.name.strip().upper()
 
-    # ── Partition (same as clean VFL) ──
+    # ── Partition (MI-ranked for tabular, width-based for vision) ──
     if dname in {"UCI-BANK", "BANK"}:
+        # Balanced mixed split (paper-style): MI-ranked client-0 view hurt Bank TabFixMatch
+        # in practice (noisy MI from rare positives). Keep deterministic round-robin.
         num_dim = int((ds.meta or {}).get("num_dim", 0))
         X_parts_train, part_meta = balanced_bank_feature_split(
-            ds.X_train, cfg.k_clients, num_dim=num_dim, seed=cfg.seed
+            ds.X_train, cfg.k_clients, num_dim=num_dim, seed=cfg.seed,
         )
     elif dname in {"UCI-MUSHROOM", "MUSHROOM"}:
         X_parts_train, part_meta = _partition_mushroom_by_aux_mi(
             ds.X_train,
             ds.y_train,
             k_clients=cfg.k_clients,
+            aux_labeled_frac=cfg.aux_labeled_frac,
+            seed=cfg.seed,
+        )
+    elif dname in {"UCI-HAR", "HAR", "UCIHAR"}:
+        X_parts_train, part_meta = _partition_continuous_by_aux_mi(
+            ds.X_train, ds.y_train, cfg.k_clients,
             aux_labeled_frac=cfg.aux_labeled_frac,
             seed=cfg.seed,
         )
@@ -230,69 +362,144 @@ def run_one(cfg: ClusteringExperimentConfig, repo_root: str) -> str:
         else:
             cmean, cstd = _CIFAR_MEAN, _CIFAR_STD
 
-        ids_np, conf_np, train_meta = run_clustering_rgb_vision(
-            X0, y_train, K,
-            aux_labeled_frac=cfg.aux_labeled_frac,
-            seed=cfg.seed,
-            fixmatch_epochs=ct.pretrain_epochs,
-            batch_labeled=ct.batch_size,
-            mu=7,
-            lr=0.1,
-            momentum=0.9,
-            weight_decay=5e-4,
-            ema_momentum=0.996,
-            tau=0.95,
-            lambda_u=1.0,
-            encoder_width=96,
-            feat_dim=512,
-            device=device,
-            cifar_mean=cmean,
-            cifar_std=cstd,
-            knn_smooth=True,
-        )
+        if dname in {"CIFAR10", "CIFAR-10", "CIFAR100", "CIFAR-100"}:
+            cifar_ds = "cifar100" if dname in {"CIFAR100", "CIFAR-100"} else "cifar10"
+            ids_np, conf_np, train_meta = run_clustering_cifar_custom(
+                X0, y_train, K,
+                dataset=cifar_ds,
+                aux_labeled_frac=cfg.aux_labeled_frac,
+                seed=cfg.seed,
+                fixmatch_epochs=ct.pretrain_epochs,
+                batch_labeled=ct.batch_size,
+                simclr_pretrain_epochs=ct.simclr_pretrain_epochs,
+                linear_probe_epochs=ct.cifar_linear_probe_epochs,
+                lr=float(ct.lr_pretrain),
+                momentum=0.9,
+                weight_decay=5e-4,
+                ema_momentum=0.996,
+                tau=float(ct.fixmatch_tau),
+                lambda_u=1.0,
+                mu=int(ct.fixmatch_mu),
+                encoder_width=int(ct.rgb_encoder_width),
+                feat_dim=int(ct.rgb_feat_dim),
+                gmm_merge_n_components=int(ct.gmm_merge_n_components),
+                device=device,
+                cifar_mean=cmean,
+                cifar_std=cstd,
+            )
+        else:
+            ids_np, conf_np, train_meta = run_clustering_rgb_vision(
+                X0, y_train, K,
+                aux_labeled_frac=cfg.aux_labeled_frac,
+                seed=cfg.seed,
+                fixmatch_epochs=ct.pretrain_epochs,
+                batch_labeled=ct.batch_size,
+                mu=7,
+                lr=0.1,
+                momentum=0.9,
+                weight_decay=5e-4,
+                ema_momentum=0.996,
+                tau=0.95,
+                lambda_u=1.0,
+                encoder_width=96,
+                feat_dim=512,
+                device=device,
+                cifar_mean=cmean,
+                cifar_std=cstd,
+                knn_smooth=True,
+            )
     else:
-        # Tabular / BoW -- detect binary features for BMM path
-        use_bmm = (dname in {"UCI-MUSHROOM", "MUSHROOM"} or
-                   (dname in {"UCI-BANK", "BANK"}) or
-                   _is_mostly_binary(X0, threshold=0.90))
-
-        if use_bmm:
-            if dname in {"UCI-MUSHROOM", "MUSHROOM"}:
-                # Mushroom needs MI-driven top-feature selection + simple BMM (legacy behavior)
-                ids_np, conf_np, train_meta = run_clustering_mushroom_custom(
-                    X0, y_train, K,
-                    aux_labeled_frac=cfg.aux_labeled_frac,
-                    seed=cfg.seed,
-                    keep_top=24,
-                    bmm_init_restarts=20,
-                    bmm_final_restarts=120,
-                    overspec_k=8,
-                    daem=False,
-                    pseudo_tau=0.85,
-                    pseudo_cap_factor=20.0,
-                    n_rounds=2,
-                    min_cluster_frac=0.08,
-                    graph_refine=True,
-                    refine_seed_tau=0.92,
-                    refine_seed_cap=4000,
-                    spread_alpha=0.12,
-                    spread_sigma=0.20,
-                    spread_max_iter=50,
-                    device=device,
-                )
-            else:
-                binarize = dname in {"UCI-BANK", "BANK"}
-                ids_np, conf_np, train_meta = run_clustering_tabular_binary(
-                    X0, y_train, K,
-                    aux_labeled_frac=cfg.aux_labeled_frac,
-                    seed=cfg.seed,
-                    bmm_overspec_factor=max(3, 6 // K),
-                    bmm_restarts=80,
-                    bmm_daem=True,
-                    binarize_continuous=binarize,
-                    n_bins=5,
-                    device=device,
-                )
+        # Tabular / BoW — dataset-specific custom pipelines first,
+        # then generic BMM/GMM fallbacks
+        if dname in {"UCI-MUSHROOM", "MUSHROOM"}:
+            ids_np, conf_np, train_meta = run_clustering_mushroom_custom(
+                X0, y_train, K,
+                aux_labeled_frac=cfg.aux_labeled_frac,
+                seed=cfg.seed,
+                keep_top=24,
+                bmm_init_restarts=20,
+                bmm_final_restarts=120,
+                overspec_k=8,
+                daem=False,
+                pseudo_tau=0.85,
+                pseudo_cap_factor=20.0,
+                n_rounds=2,
+                min_cluster_frac=0.08,
+                graph_refine=True,
+                refine_seed_tau=0.92,
+                refine_seed_cap=4000,
+                spread_alpha=0.12,
+                spread_sigma=0.20,
+                spread_max_iter=50,
+                device=device,
+            )
+        elif dname in {"UCI-BANK", "BANK"}:
+            # Tabular FixMatch: gentle sqrt-inverse class weights + prior logit adjust at infer
+            # (both from aux labels only) to lift minority-class recall without breaking ~0.87+ Hungarian.
+            ids_np, conf_np, train_meta = run_clustering_tabular_fixmatch(
+                X0, y_train, K,
+                aux_labeled_frac=cfg.aux_labeled_frac,
+                seed=cfg.seed,
+                epochs=120,
+                batch_labeled=ct.batch_size,
+                mu=5,
+                lr=2e-3,
+                weight_decay=1e-4,
+                ema_momentum=0.996,
+                tau=0.97,
+                lambda_u=1.0,
+                width=512,
+                depth=2,
+                noise_w=0.01,
+                noise_s=0.05,
+                drop_p=0.10,
+                class_balanced=False,
+                focal_gamma=0.0,
+                binary_threshold_tune=False,
+                label_smoothing=0.0,
+                ce_class_weights="inv_sqrt_capped",
+                ce_weight_cap=3.0,
+                prior_logit_adjust=True,
+                prior_logit_scale=0.45,
+                device=device,
+            )
+        elif dname in {"UCI-HAR", "HAR", "UCIHAR"}:
+            # HAR: tabular FixMatch tends to outperform unsupervised GMM/KMeans for purity.
+            ids_np, conf_np, train_meta = run_clustering_tabular_fixmatch(
+                X0, y_train, K,
+                aux_labeled_frac=cfg.aux_labeled_frac,
+                seed=cfg.seed,
+                epochs=160,
+                batch_labeled=ct.batch_size,
+                mu=5,
+                lr=2e-3,
+                weight_decay=1e-4,
+                ema_momentum=0.996,
+                tau=0.90,
+                lambda_u=1.0,
+                width=768,
+                depth=3,
+                noise_w=0.01,
+                noise_s=0.06,
+                drop_p=0.10,
+                class_balanced=True,
+                focal_gamma=0.0,
+                binary_threshold_tune=False,
+                device=device,
+            )
+        elif (_is_mostly_binary(X0, threshold=0.90)):
+            binarize = True
+            ids_np, conf_np, train_meta = run_clustering_tabular_binary(
+                X0, y_train, K,
+                aux_labeled_frac=cfg.aux_labeled_frac,
+                seed=cfg.seed,
+                bmm_overspec_factor=max(3, 6 // K),
+                bmm_restarts=80,
+                bmm_daem=True,
+                binarize_continuous=binarize,
+                n_bins=5,
+                device=device,
+            )
         else:
             pca_dim = min(64, X0.shape[-1] - 1) if X0.shape[-1] > 10 else 0
             ids_np, conf_np, train_meta = run_clustering_tabular(

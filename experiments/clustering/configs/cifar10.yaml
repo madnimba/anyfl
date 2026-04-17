@@ -5,7 +5,8 @@ aux_labeled_frac: 0.03
 out_base: experiments/clustering/runs
 export_cluster_dir: ./clusters
 clustering:
-  pretrain_epochs: 200
+  # FixMatch epochs (after optional SimCLR + linear probe)
+  pretrain_epochs: 280
   supcon_epochs: 0
   batch_size: 128
   lr_pretrain: 0.1
@@ -16,5 +17,13 @@ clustering:
   gmm_covariance: diag
   augment_cifar_style: true
   device: cuda
+  # CIFAR-10-specific (null = built-in defaults in run_clustering_cifar_custom)
+  simclr_pretrain_epochs: null
+  cifar_linear_probe_epochs: 25
+  rgb_encoder_width: 0
+  rgb_feat_dim: 0
+  fixmatch_tau: 0
+  fixmatch_mu: 0
+  gmm_merge_n_components: 0
 data:
   data_dir: ./data

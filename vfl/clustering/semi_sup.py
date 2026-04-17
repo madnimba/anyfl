@@ -5,7 +5,10 @@ Three paths aligned with what actually achieves 90%+ on legacy scripts:
   1. Vision (grayscale, e.g. MNIST/FashionMNIST):
      SimCLR with PIL augmentations -> SupCon -> self-training with pseudo-labels
      -> over-specified GMM + labeled-prototype merge
-  2. Vision (RGB, e.g. CIFAR-10/100, STL-10):
+  2a. Vision (RGB, CIFAR-10/100 client-0 half-image):
+     optional SimCLR -> linear probe -> FixMatch (RandAugment strong view)
+     -> teacher vs over-spec GMM on L2 embeddings (pick by labeled Hungarian acc)
+  2b. Vision (RGB, STL-10):
      FixMatch-style semi-supervised classification (student+EMA teacher)
      -> prototype snap + kNN smoothing
   3. Tabular / BoW:
@@ -21,7 +24,7 @@ import os
 import random
 import warnings
 from collections import Counter
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import numpy as np
 import torch
@@ -730,6 +733,307 @@ def run_clustering_rgb_vision(
             print(f"  [Refine] skipped: {e}")
 
     meta = {"split": split_meta, "pipeline": "fixmatch_rgb"}
+    return ids.astype(np.int64), conf.astype(np.float32), meta
+
+
+def _randaug_transform():
+    """RandAugment if available in this torchvision build."""
+    try:
+        return transforms.RandAugment(num_ops=2, magnitude=9)
+    except Exception:
+        return None
+
+
+def _pil_strong_aug_cifar_randaug(
+    x: torch.Tensor,
+    mean: Optional[torch.Tensor] = None,
+    std: Optional[torch.Tensor] = None,
+    rot_deg: float = 15.0,
+    trans_px: int = 4,
+) -> torch.Tensor:
+    """Strong view: RandAugment (if available) + mild affine; else fall back to legacy strong RGB aug."""
+    ra = _randaug_transform()
+    B = x.size(0)
+    outs = []
+    for i in range(B):
+        img = _to_pil(x[i].cpu())
+        if ra is not None:
+            img = ra(img)
+        angle = float(np.random.uniform(-rot_deg, rot_deg))
+        tx = int(np.random.randint(-trans_px, trans_px + 1))
+        ty = int(np.random.randint(-trans_px, trans_px + 1))
+        img = TF.affine(
+            img, angle=angle, translate=(tx, ty), scale=1.0, shear=(0.0, 0.0),
+            interpolation=InterpolationMode.BILINEAR, fill=0,
+        )
+        img = transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)(img)
+        outs.append(_to_tensor(img))
+    out = torch.stack(outs, 0).to(x.device)
+    if mean is not None and std is not None:
+        out = (out - mean.to(out.device)) / std.to(out.device)
+    re = transforms.RandomErasing(p=0.25, scale=(0.02, 0.18), ratio=(0.3, 3.3), value=0.0)
+    for i in range(out.size(0)):
+        out[i] = re(out[i])
+    return out
+
+
+class _SimCLR_RGB(nn.Module):
+    def __init__(self, enc: nn.Module, feat_dim: int, proj_out: int = 128):
+        super().__init__()
+        self.enc = enc
+        hid = max(256, feat_dim)
+        self.proj = _ProjHead(feat_dim, hid=hid, out=proj_out)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.proj(self.enc(x))
+
+
+def _simclr_view_pair_rgb(
+    xb: torch.Tensor,
+    mean: Optional[torch.Tensor],
+    std: Optional[torch.Tensor],
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Two independent strong views for SimCLR (same normalization as FixMatch)."""
+    v1 = _pil_strong_aug_cifar_randaug(xb, mean=mean, std=std)
+    v2 = _pil_strong_aug_cifar_randaug(xb, mean=mean, std=std)
+    return v1, v2
+
+
+def run_clustering_cifar_custom(
+    X0: torch.Tensor,
+    y: torch.Tensor,
+    num_classes: int,
+    *,
+    dataset: Literal["cifar10", "cifar100"],
+    aux_labeled_frac: float,
+    seed: int,
+    fixmatch_epochs: int,
+    batch_labeled: int,
+    simclr_pretrain_epochs: Optional[int] = None,
+    linear_probe_epochs: int = 25,
+    lr: float = 0.1,
+    momentum: float = 0.9,
+    weight_decay: float = 5e-4,
+    ema_momentum: float = 0.996,
+    tau: float = 0.0,
+    lambda_u: float = 1.0,
+    mu: int = 0,
+    encoder_width: int = 0,
+    feat_dim: int = 0,
+    gmm_merge_n_components: int = 0,
+    device: str = "cuda",
+    cifar_mean: Optional[Tuple[float, ...]] = None,
+    cifar_std: Optional[Tuple[float, ...]] = None,
+) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+    """
+    CIFAR-specific client-0 pipeline: optional SimCLR on the half-image view,
+    linear probe on auxiliary labels, FixMatch (RandAugment strong view),
+    then pick teacher logits vs over-spec GMM on L2 embeddings by labeled Hungarian accuracy.
+    """
+    _set_deterministic(seed)
+    dev = torch.device(device if torch.cuda.is_available() else "cpu")
+    y_np = y.detach().cpu().numpy().astype(np.int64)
+    K = num_classes
+
+    if dataset == "cifar10":
+        d_simclr = 75 if simclr_pretrain_epochs is None else int(simclr_pretrain_epochs)
+        w_def, f_def, tau_def = 128, 640, 0.90
+        n_gmm_cap = 24  # ~2*K
+    else:
+        d_simclr = 95 if simclr_pretrain_epochs is None else int(simclr_pretrain_epochs)
+        w_def, f_def, tau_def = 160, 768, 0.875
+        # Must stay > K for overspec merge; cap for sklearn runtime on 50k points
+        n_gmm_cap = 120
+
+    ew = int(encoder_width) if encoder_width > 0 else w_def
+    fd = int(feat_dim) if feat_dim > 0 else f_def
+    tau_fm = float(tau) if tau > 0 else tau_def
+    mu_u = int(mu) if mu > 0 else 7
+
+    lab_idx, unlab_idx, split_meta = stratified_labeled_unlabeled(y_np, aux_labeled_frac, seed, K)
+    print(
+        f"[CIFAR/{dataset}] labeled={len(lab_idx)} ({100*len(lab_idx)/len(y_np):.1f}%), "
+        f"unlabeled={len(unlab_idx)} width={ew} feat={fd} tau={tau_fm:.3f}"
+    )
+
+    X_lab = X0[lab_idx]
+    Y_lab = torch.tensor(y_np[lab_idx], dtype=torch.long)
+    X_unlab = X0[unlab_idx]
+
+    mean_t = torch.tensor(cifar_mean).view(3, 1, 1) if cifar_mean else None
+    std_t = torch.tensor(cifar_std).view(3, 1, 1) if cifar_std else None
+
+    in_ch = int(X0.shape[1])
+    backbone = _RGBEncoder(in_ch=in_ch, width=ew, feat_dim=fd)
+
+    if d_simclr > 0:
+        print(f"  [CIFAR] SimCLR pretrain: {d_simclr} epochs (two-view, NT-Xent)")
+        simclr = _SimCLR_RGB(backbone, fd, proj_out=128).to(dev)
+        opt_s = torch.optim.AdamW(simclr.parameters(), lr=3e-4, weight_decay=1e-4)
+        ds_all = DataLoader(
+            TensorDataset(X0),
+            batch_size=batch_labeled,
+            shuffle=True,
+            drop_last=True,
+            generator=torch.Generator().manual_seed(seed + 11),
+        )
+        steps_s = max(1, len(ds_all))
+        sched_s = torch.optim.lr_scheduler.CosineAnnealingLR(opt_s, T_max=d_simclr * steps_s)
+        simclr.train()
+        temp_nt = 0.25
+        for ep in range(1, d_simclr + 1):
+            tot = 0.0
+            n = 0
+            for (xb,) in ds_all:
+                xb = xb.to(dev)
+                z1, z2 = _simclr_view_pair_rgb(xb, mean_t, std_t)
+                p1, p2 = simclr(z1), simclr(z2)
+                loss = _nt_xent_loss(p1, p2, temp_nt)
+                opt_s.zero_grad()
+                loss.backward()
+                opt_s.step()
+                sched_s.step()
+                tot += loss.item()
+                n += 1
+            if ep % max(1, d_simclr // 5) == 0 or ep == d_simclr:
+                print(f"    [SimCLR] {ep:03d}/{d_simclr} loss={tot/max(1,n):.4f}")
+        del simclr
+        torch.cuda.empty_cache() if dev.type == "cuda" else None
+
+    student = _FixMatchModel(backbone, fd, K).to(dev)
+    teacher = copy.deepcopy(student).to(dev)
+    for p in teacher.parameters():
+        p.requires_grad = False
+
+    if linear_probe_epochs > 0 and len(X_lab) > 0:
+        print(f"  [CIFAR] Linear probe (frozen backbone): {linear_probe_epochs} epochs")
+        student.train()
+        for p in student.backbone.parameters():
+            p.requires_grad = False
+        opt_p = torch.optim.SGD(
+            student.head.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4, nesterov=True,
+        )
+        probe_loader = DataLoader(
+            TensorDataset(X_lab, Y_lab),
+            batch_size=min(batch_labeled, len(X_lab)),
+            shuffle=True,
+            drop_last=len(X_lab) > batch_labeled,
+            generator=torch.Generator().manual_seed(seed + 3),
+        )
+        for ep in range(1, linear_probe_epochs + 1):
+            for xb, yb in probe_loader:
+                xb, yb = xb.to(dev), yb.to(dev)
+                xw = _pil_weak_aug_rgb(xb, mean=mean_t, std=std_t)
+                loss = F.cross_entropy(student(xw), yb)
+                opt_p.zero_grad()
+                loss.backward()
+                opt_p.step()
+        for p in student.parameters():
+            p.requires_grad = True
+        teacher.load_state_dict(student.state_dict())
+        for p in teacher.parameters():
+            p.requires_grad = False
+
+    B_U = batch_labeled * mu_u
+    unlab_loader = DataLoader(
+        TensorDataset(X_unlab),
+        batch_size=B_U,
+        shuffle=True,
+        drop_last=True,
+        generator=torch.Generator().manual_seed(seed),
+    )
+    per_class = max(4, batch_labeled // K)
+    lab_iter = _make_balanced_lab_iter(X_lab, Y_lab, per_class, K, seed)
+
+    opt = torch.optim.SGD(student.parameters(), lr=lr, momentum=momentum,
+                            weight_decay=weight_decay, nesterov=True)
+    steps_per_ep = max(1, len(unlab_loader))
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=fixmatch_epochs * steps_per_ep)
+
+    unl_it = iter(unlab_loader)
+    for ep in range(1, fixmatch_epochs + 1):
+        student.train()
+        ls_sum, lu_sum, cnt = 0.0, 0.0, 0
+        for _ in range(steps_per_ep):
+            xb_l, yb_l = next(lab_iter)
+            xb_l, yb_l = xb_l.to(dev), yb_l.to(dev)
+            xw_l = _pil_weak_aug_rgb(xb_l, mean=mean_t, std=std_t)
+            Ls = F.cross_entropy(student(xw_l), yb_l)
+
+            try:
+                (xb_u,) = next(unl_it)
+            except StopIteration:
+                unl_it = iter(unlab_loader)
+                (xb_u,) = next(unl_it)
+            xb_u = xb_u.to(dev)
+            xw_u = _pil_weak_aug_rgb(xb_u, mean=mean_t, std=std_t)
+            xs_u = _pil_strong_aug_cifar_randaug(xb_u, mean=mean_t, std=std_t)
+
+            with torch.no_grad():
+                p_u = torch.softmax(teacher(xw_u), dim=1)
+                conf_u, yhat = p_u.max(dim=1)
+                mask = (conf_u >= tau_fm).float()
+
+            Lu = (F.cross_entropy(student(xs_u), yhat, reduction="none") * mask).mean()
+            loss = Ls + lambda_u * Lu
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+
+            with torch.no_grad():
+                for ps, pt in zip(student.parameters(), teacher.parameters()):
+                    pt.data.mul_(ema_momentum).add_((1 - ema_momentum) * ps.data)
+            sched.step()
+            ls_sum += Ls.item()
+            lu_sum += Lu.item()
+            cnt += 1
+
+        if ep % 10 == 0 or ep == fixmatch_epochs:
+            print(
+                f"  [FixMatch] {ep:03d}/{fixmatch_epochs} Ls={ls_sum/max(1,cnt):.3f} "
+                f"Lu={lu_sum/max(1,cnt):.3f} lr={sched.get_last_lr()[0]:.5f}"
+            )
+
+    teacher.eval()
+    ids_t, conf_t = _predict_all_teacher(teacher, X0, dev, mean_t, std_t)
+    print(f"  [CIFAR] raw teacher | {_quick_eval_str(y_np, ids_t)}")
+
+    Z_feat = _extract_l2_feats(teacher.backbone, X0, dev, mean_t, std_t)
+    n_fit = len(X0)
+    if gmm_merge_n_components > 0:
+        n_comp = int(gmm_merge_n_components)
+    else:
+        n_comp = min(max(2 * K, K + 8), n_gmm_cap)
+    n_comp = min(n_comp, max(K + 5, min(n_fit // 40, n_gmm_cap)))
+    n_comp = max(n_comp, K + 1)
+
+    ids_g: Optional[np.ndarray] = None
+    conf_g: Optional[np.ndarray] = None
+    try:
+        ids_g, conf_g = _overspec_gmm_merge(Z_feat, lab_idx, y_np, K, n_comp, seed)
+        acc_t = _labeled_hungarian_accuracy(y_np, ids_t, lab_idx, K)
+        acc_g = _labeled_hungarian_accuracy(y_np, ids_g, lab_idx, K)
+        print(f"  [CIFAR] labeled H-acc: teacher={acc_t:.4f}  GMM-merge(n={n_comp})={acc_g:.4f}")
+        if acc_g > acc_t:
+            print("  [CIFAR] using GMM-merge assignment (better on labeled subset)")
+            ids, conf = ids_g, conf_g
+        else:
+            print("  [CIFAR] using teacher argmax assignment")
+            ids, conf = ids_t, conf_t
+    except Exception as e:
+        print(f"  [CIFAR] GMM-merge skipped: {e}; using teacher")
+        ids, conf = ids_t, conf_t
+
+    meta = {
+        "split": split_meta,
+        "pipeline": f"cifar_custom_{dataset}",
+        "simclr_epochs": int(d_simclr),
+        "linear_probe_epochs": int(linear_probe_epochs),
+        "encoder_width": ew,
+        "feat_dim": fd,
+        "tau": tau_fm,
+        "gmm_merge_n_components": int(n_comp),
+    }
     return ids.astype(np.int64), conf.astype(np.float32), meta
 
 
@@ -1478,6 +1782,941 @@ def run_clustering_tabular_binary(
             "bmm_K_fit": K_fit, "bmm_restarts": bmm_restarts,
             "binarized": binarize_continuous, "features": int(X_bin.shape[1]),
             "labeled_acc": float(acc)}
+    return ids, conf, meta
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Shared module-level helpers for JS merge, mRMR, trimmed-EM
+# ═══════════════════════════════════════════════════════════════════
+
+def _js_div_bern(p: np.ndarray, q: np.ndarray, eps: float = 1e-12) -> float:
+    """Jensen-Shannon divergence between two Bernoulli parameter vectors."""
+    m = 0.5 * (p + q)
+    p = np.clip(p, eps, 1 - eps)
+    q = np.clip(q, eps, 1 - eps)
+    m = np.clip(m, eps, 1 - eps)
+    kl_pm = (p * np.log(p / m) + (1 - p) * np.log((1 - p) / (1 - m))).sum()
+    kl_qm = (q * np.log(q / m) + (1 - q) * np.log((1 - q) / (1 - m))).sum()
+    return float(0.5 * kl_pm + 0.5 * kl_qm)
+
+
+def _merge_comps_js(pi: np.ndarray, P: np.ndarray, target_K: int = 2) -> np.ndarray:
+    """Greedy merge Bernoulli mixture components to target_K via JS divergence."""
+    K_fit = int(P.shape[0])
+    alive = list(range(K_fit))
+    pi = pi.astype(np.float64, copy=True)
+    P = P.astype(np.float64, copy=True)
+    while len(alive) > target_K:
+        best_d, best_pair = None, None
+        for i in range(len(alive)):
+            for j in range(i + 1, len(alive)):
+                a, b = alive[i], alive[j]
+                d = _js_div_bern(P[a], P[b])
+                if best_d is None or d < best_d:
+                    best_d, best_pair = d, (a, b)
+        assert best_pair is not None
+        a, b = best_pair
+        wa, wb = float(pi[a]), float(pi[b])
+        w = wa + wb
+        if w > 0:
+            P[a] = (wa * P[a] + wb * P[b]) / (w + 1e-12)
+        pi[a] = w
+        alive.remove(b)
+    survivors = alive
+    assign = np.zeros(K_fit, dtype=np.int64)
+    for k in range(K_fit):
+        ds = [_js_div_bern(P[k], P[s]) for s in survivors]
+        assign[k] = int(np.argmin(ds))
+    uniq = sorted(set(assign.tolist()))
+    remap = {u: i for i, u in enumerate(uniq)}
+    return np.array([remap[int(a)] for a in assign], dtype=np.int64)
+
+
+def _mrmr_select_binary(
+    X_all: np.ndarray,
+    X_lab: np.ndarray,
+    y_lab: np.ndarray,
+    pool_idx: np.ndarray,
+    k: int,
+    alpha: float = 0.5,
+    seed: int = 42,
+) -> np.ndarray:
+    """mRMR feature selection for binary data. MI from labeled subset, Jaccard from all."""
+    from sklearn.feature_selection import mutual_info_classif
+    mi = mutual_info_classif(
+        X_lab[:, pool_idx], y_lab, discrete_features=True, random_state=seed
+    )
+    selected: List[int] = []
+    chosen: set = set()
+    for _ in range(min(k, len(pool_idx))):
+        best, best_s = None, -1e18
+        for pos, f in enumerate(pool_idx):
+            if f in chosen:
+                continue
+            red = 0.0
+            if selected:
+                sf = X_all[:, f] > 0
+                for g in selected:
+                    sg = X_all[:, g] > 0
+                    inter = float(np.sum(sf & sg))
+                    union = float(np.sum(sf | sg)) + 1e-12
+                    red += inter / union
+                red /= len(selected)
+            s = float(mi[pos]) - alpha * red
+            if s > best_s:
+                best_s, best = s, int(f)
+        if best is not None:
+            selected.append(best)
+            chosen.add(best)
+    return np.array(selected, dtype=np.int64)
+
+
+def _trimmed_em_refit(
+    bmm: BernoulliMixture, X: np.ndarray, tau: float = 0.90,
+) -> BernoulliMixture:
+    """Refit BMM parameters on high-confidence subset, then one full EM sweep."""
+    P = bmm.predict_proba(X)
+    conf = P.max(axis=1)
+    thr = float(tau)
+    sel = conf >= thr
+    while sel.sum() < max(0.08 * len(X), 200) and thr > 0.5:
+        thr -= 0.05
+        sel = conf >= thr
+    if sel.sum() < 50:
+        return bmm
+    P_sel = P[sel]
+    X_sel = X[sel]
+    yhat = P_sel.argmax(axis=1)
+    for k in range(bmm.K):
+        mask_k = (yhat == k)
+        Nk = int(mask_k.sum())
+        if Nk > 0:
+            bmm.p[k] = np.clip(X_sel[mask_k].mean(axis=0), bmm.reg, 1 - bmm.reg)
+            bmm.pi[k] = Nk / len(yhat)
+        else:
+            topk = np.argsort(-P[:, k])[:200]
+            if P[topk, k].max() > 0.55:
+                bmm.p[k] = np.clip(X[topk].mean(axis=0), bmm.reg, 1 - bmm.reg)
+            else:
+                g = X.mean(axis=0)
+                noise = (bmm.rng.rand(*g.shape) - 0.5) * 0.02
+                bmm.p[k] = np.clip(g + noise, bmm.reg, 1 - bmm.reg)
+            bmm.pi[k] = max(bmm.min_pi, 1.0 / (2.5 * bmm.K))
+    bmm._sanitize()
+    eps = 1e-12
+    log_p = bmm._weighted_log_prob(X)
+    log_post = log_p + np.log(bmm.pi + eps)[None, :]
+    m = log_post.max(axis=1, keepdims=True)
+    post = np.exp(log_post - m)
+    post /= (post.sum(axis=1, keepdims=True) + eps)
+    Nk_arr = post.sum(axis=0) + eps
+    bmm.pi = Nk_arr / Nk_arr.sum()
+    bmm.p = (post.T @ X) / Nk_arr[:, None]
+    bmm._sanitize()
+    return bmm
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  PATH 5: HAR-specific (MI-weight → Scaler → PCA → L2 → GMM/KM → LabelSpreading)
+# ═══════════════════════════════════════════════════════════════════
+
+def run_clustering_har_custom(
+    X0: torch.Tensor,
+    y: torch.Tensor,
+    num_classes: int,
+    *,
+    aux_labeled_frac: float,
+    seed: int,
+    pca_dim: int = 64,
+    overspec_k: int = 12,
+    gmm_restarts: int = 20,
+    gmm_cov: str = "diag",
+    graph_refine: bool = True,
+    refine_seed_tau: float = 0.88,
+    refine_seed_cap: int = 2000,
+    spread_alpha: float = 0.10,
+    spread_sigma: float = 0.30,
+    spread_max_iter: int = 50,
+    device: str = "cpu",
+) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+    """
+    HAR-specific pipeline adapted from legacy run_har_clustering.py:
+      MI-weight → StandardScaler → PCA(whiten) → L2 norm
+      → overspec KMeans + GMM → labeled-subset auto-select → LabelSpreading
+    """
+    _set_deterministic(seed)
+    y_np = y.detach().cpu().numpy().astype(np.int64)
+    K = num_classes
+
+    lab_idx, unlab_idx, split_meta = stratified_labeled_unlabeled(
+        y_np, aux_labeled_frac, seed, K
+    )
+    print(f"[HAR-CUST] labeled={len(lab_idx)} "
+          f"({100 * len(lab_idx) / len(y_np):.1f}%), K={K}")
+
+    X_np = X0.detach().cpu().numpy().astype(np.float32)
+    if X_np.ndim > 2:
+        X_np = X_np.reshape(X_np.shape[0], -1)
+    D_in = X_np.shape[1]
+
+    mi_weighted = False
+    try:
+        from sklearn.feature_selection import mutual_info_classif
+        mi = mutual_info_classif(
+            X_np[lab_idx], y_np[lab_idx],
+            discrete_features=False, random_state=seed,
+        )
+        mi = np.maximum(mi, 0.0)
+        if mi.sum() > 0:
+            mi_w = mi / (mi.mean() + 1e-12)
+            X_np = X_np * mi_w[None, :].astype(np.float32)
+            mi_weighted = True
+    except Exception:
+        pass
+
+    X_sc = StandardScaler(with_mean=True, with_std=True).fit_transform(X_np)
+    d = X_sc.shape[1]
+    actual_pca = min(pca_dim, d - 1) if pca_dim > 0 and pca_dim < d else 0
+    if actual_pca > 0:
+        X_sc = PCA(
+            n_components=actual_pca, whiten=True, random_state=seed
+        ).fit_transform(X_sc).astype(np.float32)
+
+    Z_norm = _l2_norm(X_sc)
+    D_final = Z_norm.shape[1]
+    print(f"  [HAR-CUST] MI-weighted={mi_weighted} PCA→{D_final}d L2-normalized")
+
+    # ── Overspecified KMeans (cosine) ──
+    ids_km, conf_km = _run_kmeans_overspec(
+        Z_norm, K, max(K, overspec_k), seed
+    )
+
+    # ── Overspecified GMM with labeled-prototype merge ──
+    Z64 = Z_norm.astype(np.float64)
+    best_gmm, best_ll = None, -np.inf
+    for r in range(gmm_restarts):
+        for reg in (1e-6, 1e-5, 1e-4, 1e-3):
+            try:
+                g = GaussianMixture(
+                    n_components=max(K, overspec_k),
+                    covariance_type=gmm_cov,
+                    reg_covar=reg,
+                    random_state=seed + r,
+                    init_params="kmeans",
+                    max_iter=500,
+                )
+                g.fit(Z64)
+                ll = g.score(Z64)
+                if ll > best_ll:
+                    best_ll, best_gmm = ll, g
+                break
+            except ValueError:
+                continue
+
+    if best_gmm is not None and best_gmm.n_components > K:
+        resp = best_gmm.predict_proba(Z64)
+        protos = []
+        for c in range(K):
+            idx_c = lab_idx[y_np[lab_idx] == c]
+            if len(idx_c):
+                protos.append(Z_norm[idx_c].mean(axis=0))
+            else:
+                protos.append(np.zeros(D_final, dtype=np.float32))
+        P_proto = np.stack(protos, 0)
+        means_n = best_gmm.means_ / (
+            np.linalg.norm(best_gmm.means_, axis=1, keepdims=True) + 1e-12
+        )
+        P_n = P_proto / (np.linalg.norm(P_proto, axis=1, keepdims=True) + 1e-12)
+        assign = np.argmax(means_n @ P_n.T, axis=1)
+        M_map = np.zeros((best_gmm.n_components, K), dtype=np.float64)
+        for j, c_id in enumerate(assign):
+            M_map[j, c_id] = 1.0
+        class_conf = resp @ M_map
+        ids_gmm = class_conf.argmax(axis=1).astype(np.int64)
+        conf_gmm = class_conf[np.arange(len(ids_gmm)), ids_gmm].astype(np.float32)
+    elif best_gmm is not None:
+        ids_gmm = best_gmm.predict(Z64).astype(np.int64)
+        post = best_gmm.predict_proba(Z64)
+        conf_gmm = post.max(axis=1).astype(np.float32)
+    else:
+        ids_gmm, conf_gmm = ids_km.copy(), conf_km.copy()
+
+    acc_km = _labeled_hungarian_accuracy(y_np, ids_km, lab_idx, K)
+    acc_gmm = _labeled_hungarian_accuracy(y_np, ids_gmm, lab_idx, K)
+    if acc_km > acc_gmm:
+        ids, conf, method = ids_km, conf_km, "kmeans"
+    else:
+        ids, conf, method = ids_gmm, conf_gmm, "gmm"
+    print(f"  [Auto] GMM_acc={acc_gmm:.4f} KM_acc={acc_km:.4f} -> {method}")
+
+    # ── LabelSpreading refinement (RBF kernel, suitable for ~9K samples) ──
+    refine_meta: Dict[str, Any] = {"enabled": bool(graph_refine)}
+    if graph_refine:
+        try:
+            from sklearn.semi_supervised import LabelSpreading as _LS
+
+            Xf = Z_norm.astype(np.float32, copy=False)
+            y_semi = np.full(len(y_np), -1, dtype=np.int64)
+            y_semi[lab_idx] = y_np[lab_idx]
+            is_lab = np.zeros(len(y_np), dtype=bool)
+            is_lab[lab_idx] = True
+            seed_mask = (~is_lab) & (conf >= float(refine_seed_tau))
+            seed_arr = np.where(seed_mask)[0]
+            if len(seed_arr) > int(refine_seed_cap):
+                seed_arr = seed_arr[
+                    np.argsort(-conf[seed_arr])[: int(refine_seed_cap)]
+                ]
+            y_semi[seed_arr] = ids[seed_arr]
+
+            base_score = _labeled_hungarian_accuracy(y_np, ids, lab_idx, K)
+            sig = float(spread_sigma)
+            gamma = float(1.0 / (2.0 * max(1e-6, sig * sig)))
+            ls = _LS(
+                kernel="rbf", gamma=gamma, alpha=float(spread_alpha),
+                max_iter=int(spread_max_iter), tol=1e-3,
+            )
+            ls.fit(Xf, y_semi)
+            P_ls = np.asarray(ls.label_distributions_, dtype=np.float64)
+            P_ls /= (P_ls.sum(axis=1, keepdims=True) + 1e-12)
+            ids_ls = P_ls.argmax(axis=1).astype(np.int64)
+            conf_ls = P_ls.max(axis=1).astype(np.float32)
+
+            sc = _labeled_hungarian_accuracy(y_np, ids_ls, lab_idx, K)
+            counts = np.bincount(ids_ls, minlength=K)
+            min_frac = float(counts.min()) / max(1.0, float(counts.sum()))
+            if sc >= base_score - 0.005 and min_frac >= 0.02:
+                ids, conf = ids_ls, conf_ls
+                refine_meta.update({
+                    "picked": "label_spreading",
+                    "base": float(base_score),
+                    "refined": float(sc),
+                    "n_seeds": int(len(seed_arr)),
+                })
+            else:
+                refine_meta.update({
+                    "picked": "skipped",
+                    "base": float(base_score),
+                    "trial": float(sc),
+                    "min_frac": float(min_frac),
+                })
+        except Exception as e:
+            refine_meta.update({"picked": "error", "error": str(e)})
+
+    meta = {
+        "split": split_meta,
+        "pipeline": "har_custom",
+        "features_in": int(D_in),
+        "pca_dim": int(D_final),
+        "overspec_k": int(overspec_k),
+        "gmm_restarts": int(gmm_restarts),
+        "mi_weighted": mi_weighted,
+        "selected": method,
+        "acc_gmm": float(acc_gmm),
+        "acc_km": float(acc_km),
+        "graph_refine": refine_meta,
+    }
+    return ids, conf, meta
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  PATH 6: Bank-specific (binarize → mRMR → BMM+DAEM+JS → trim → LabelSpreading)
+# ═══════════════════════════════════════════════════════════════════
+
+def run_clustering_bank_custom(
+    X0: torch.Tensor,
+    y: torch.Tensor,
+    num_classes: int,
+    *,
+    aux_labeled_frac: float,
+    seed: int,
+    mrmr_keep: int = 8,
+    mrmr_alpha: float = 0.5,
+    n_bins: int = 10,
+    overspec_k: int = 6,
+    bmm_restarts: int = 100,
+    bmm_daem: bool = True,
+    min_pi: float = 0.08,
+    trim_em: bool = True,
+    trim_tau: float = 0.90,
+    graph_refine: bool = True,
+    refine_seed_tau: float = 0.90,
+    refine_seed_cap: int = 4000,
+    spread_alpha: float = 0.12,
+    spread_n_neighbors: int = 15,
+    spread_max_iter: int = 50,
+    device: str = "cpu",
+) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+    """
+    Bank-specific pipeline adapted from legacy run_bank_clustering.py:
+      binarize continuous → MI rank → mRMR (Jaccard) select → entropy-weighted BMM
+      with DAEM + overspec + JS merge → trimmed EM → auto-select → LabelSpreading(knn)
+    """
+    _set_deterministic(seed)
+    if num_classes != 2:
+        raise ValueError(f"Bank pipeline expects num_classes=2, got {num_classes}")
+
+    y_np = y.detach().cpu().numpy().astype(np.int64)
+    K = num_classes
+
+    lab_idx, unlab_idx, split_meta = stratified_labeled_unlabeled(
+        y_np, aux_labeled_frac, seed, K
+    )
+
+    X_np = X0.detach().cpu().numpy().astype(np.float32)
+    if X_np.ndim > 2:
+        X_np = X_np.reshape(X_np.shape[0], -1)
+
+    X_bin = _binarize_continuous_features(X_np, n_bins=n_bins)
+    X_bin = (X_bin > 0.5).astype(np.float64)
+    N, D = X_bin.shape
+
+    print(f"[BANK-CUST] labeled={len(lab_idx)} "
+          f"({100 * len(lab_idx) / len(y_np):.1f}%), "
+          f"features_orig={X_np.shape[1]} features_binary={D}")
+
+    from sklearn.feature_selection import mutual_info_classif
+    mi = mutual_info_classif(
+        X_bin[lab_idx], y_np[lab_idx],
+        discrete_features=True, random_state=seed,
+    )
+    order = np.argsort(-mi)
+
+    pool_size = min(D, max(mrmr_keep * 3, D // 2))
+    pool = order[:pool_size].astype(np.int64)
+    sel_idx = _mrmr_select_binary(
+        X_bin, X_bin[lab_idx], y_np[lab_idx],
+        pool, k=mrmr_keep, alpha=mrmr_alpha, seed=seed,
+    )
+    X_sel = X_bin[:, sel_idx]
+    D_sel = X_sel.shape[1]
+    print(f"  [mRMR] selected {D_sel} features from pool of {pool_size}")
+
+    w = _entropy_weights(X_sel.astype(np.float32))
+
+    def _cluster_ok_local(ids_loc: np.ndarray) -> bool:
+        counts = np.bincount(ids_loc, minlength=2).astype(np.float64)
+        frac = counts / max(1.0, float(counts.sum()))
+        return float(frac.min()) >= float(min_pi)
+
+    def _score_lab(ids_loc: np.ndarray) -> float:
+        return _labeled_hungarian_accuracy(y_np, ids_loc, lab_idx, 2)
+
+    # ── Fit BMM with multiple restarts, JS merge, collapse guard ──
+    best_bmm_result: Dict[str, Any] = {"score": -1.0}
+    for r in range(bmm_restarts):
+        m = BernoulliMixture(
+            n_components=overspec_k, max_iter=600, tol=1e-6, reg=1e-4,
+            random_state=seed + r, init="kmeans", daem=bmm_daem,
+            min_pi=0.03 if overspec_k > 2 else 0.01,
+            feature_weights=w,
+        ).fit(X_sel)
+        Pk = m.predict_proba(X_sel)
+        if overspec_k <= 2:
+            side_post = Pk
+        else:
+            assign_arr = _merge_comps_js(m.pi, m.p, target_K=2)
+            side_post = np.zeros((N, 2), dtype=np.float64)
+            for ki in range(overspec_k):
+                side_post[:, int(assign_arr[ki])] += Pk[:, ki]
+        ids_loc = side_post.argmax(axis=1).astype(np.int64)
+        conf_loc = side_post.max(axis=1).astype(np.float32)
+        if not _cluster_ok_local(ids_loc):
+            continue
+        s = _score_lab(ids_loc)
+        if s > best_bmm_result["score"]:
+            best_bmm_result = {
+                "score": float(s), "ids": ids_loc, "conf": conf_loc,
+                "bmm": m, "restart": int(r),
+            }
+
+    # Trimmed EM refinement on best BMM
+    if "ids" in best_bmm_result and trim_em:
+        m_trim = _trimmed_em_refit(best_bmm_result["bmm"], X_sel, tau=trim_tau)
+        Pk2 = m_trim.predict_proba(X_sel)
+        if overspec_k <= 2:
+            sp2 = Pk2
+        else:
+            a2 = _merge_comps_js(m_trim.pi, m_trim.p, target_K=2)
+            sp2 = np.zeros((N, 2), dtype=np.float64)
+            for ki in range(overspec_k):
+                sp2[:, int(a2[ki])] += Pk2[:, ki]
+        ids_t = sp2.argmax(axis=1).astype(np.int64)
+        conf_t = sp2.max(axis=1).astype(np.float32)
+        if _cluster_ok_local(ids_t):
+            st = _score_lab(ids_t)
+            if st >= best_bmm_result["score"]:
+                best_bmm_result["ids"] = ids_t
+                best_bmm_result["conf"] = conf_t
+                best_bmm_result["score"] = float(st)
+                best_bmm_result["trimmed"] = True
+
+    if "ids" in best_bmm_result:
+        ids_bmm, conf_bmm = best_bmm_result["ids"], best_bmm_result["conf"]
+    else:
+        ids_bmm = np.zeros(N, dtype=np.int64)
+        conf_bmm = np.zeros(N, dtype=np.float32)
+
+    # ── Spherical KMeans alternative ──
+    Xn = X_sel / (np.linalg.norm(X_sel, axis=1, keepdims=True) + 1e-12)
+    km = KMeans(n_clusters=2, n_init=200, random_state=seed)
+    ids_km = km.fit_predict(Xn).astype(np.int64)
+    C_km = km.cluster_centers_
+    C_km /= (np.linalg.norm(C_km, axis=1, keepdims=True) + 1e-12)
+    sim_km = Xn @ C_km.T
+    top2 = np.partition(sim_km, -2, axis=1)[:, -2:]
+    margin = top2[:, -1] - top2[:, -2]
+    conf_km = ((margin - margin.min()) / (margin.max() - margin.min() + 1e-12)
+               ).astype(np.float32)
+
+    sb = _score_lab(ids_bmm) if "ids" in best_bmm_result else 0.0
+    sk = _score_lab(ids_km)
+    if sk > sb and _cluster_ok_local(ids_km):
+        ids, conf, method = ids_km, conf_km, "kmeans"
+    elif "ids" in best_bmm_result:
+        ids, conf, method = ids_bmm, conf_bmm, "bmm"
+    else:
+        ids, conf, method = ids_km, conf_km, "kmeans_fallback"
+    print(f"  [Auto] BMM_acc={sb:.4f} KM_acc={sk:.4f} -> {method}")
+
+    # ── LabelSpreading refinement (knn kernel for 36K samples) ──
+    refine_meta: Dict[str, Any] = {"enabled": bool(graph_refine)}
+    if graph_refine:
+        try:
+            from sklearn.semi_supervised import LabelSpreading as _LS
+
+            Xf = X_sel.astype(np.float32, copy=False)
+            y_semi = np.full(N, -1, dtype=np.int64)
+            y_semi[lab_idx] = y_np[lab_idx]
+            is_lab = np.zeros(N, dtype=bool)
+            is_lab[lab_idx] = True
+            seed_mask = (~is_lab) & (conf >= float(refine_seed_tau))
+            seed_arr = np.where(seed_mask)[0]
+            if len(seed_arr) > int(refine_seed_cap):
+                seed_arr = seed_arr[
+                    np.argsort(-conf[seed_arr])[: int(refine_seed_cap)]
+                ]
+            y_semi[seed_arr] = ids[seed_arr]
+
+            base_score = _score_lab(ids)
+            ls = _LS(
+                kernel="knn", n_neighbors=int(spread_n_neighbors),
+                alpha=float(spread_alpha),
+                max_iter=int(spread_max_iter), tol=1e-3,
+            )
+            ls.fit(Xf, y_semi)
+            P_ls = np.asarray(ls.label_distributions_, dtype=np.float64)
+            P_ls /= (P_ls.sum(axis=1, keepdims=True) + 1e-12)
+            ids_ls = P_ls.argmax(axis=1).astype(np.int64)
+            conf_ls = P_ls.max(axis=1).astype(np.float32)
+
+            sc = _score_lab(ids_ls)
+            if _cluster_ok_local(ids_ls) and sc >= base_score - 1e-6:
+                ids, conf = ids_ls, conf_ls
+                refine_meta.update({
+                    "picked": "label_spreading_knn",
+                    "base": float(base_score),
+                    "refined": float(sc),
+                    "n_seeds": int(len(seed_arr)),
+                })
+            else:
+                refine_meta.update({
+                    "picked": "skipped",
+                    "base": float(base_score),
+                    "trial": float(sc),
+                })
+        except Exception as e:
+            refine_meta.update({"picked": "error", "error": str(e)})
+
+    meta = {
+        "split": split_meta,
+        "pipeline": "bank_custom",
+        "features_orig": int(X_np.shape[1]),
+        "features_binary": int(D),
+        "features_selected": int(D_sel),
+        "mrmr_keep": int(mrmr_keep),
+        "overspec_k": int(overspec_k),
+        "bmm_restarts": int(bmm_restarts),
+        "trim_em": bool(trim_em),
+        "selected": method,
+        "graph_refine": refine_meta,
+    }
+    return ids, conf, meta
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  PATH 7: Tabular FixMatch-style semi-supervised classifier
+#   (used for HAR + Bank when “pure clusters” are required)
+# ═══════════════════════════════════════════════════════════════════
+
+class _TabMLP(nn.Module):
+    def __init__(self, d_in: int, num_classes: int, width: int = 512, depth: int = 2, p_drop: float = 0.1):
+        super().__init__()
+        layers: List[nn.Module] = []
+        d = int(d_in)
+        for i in range(int(depth)):
+            layers += [nn.Linear(d, int(width)), nn.ReLU(inplace=True), nn.Dropout(p=float(p_drop))]
+            d = int(width)
+        self.backbone = nn.Sequential(*layers) if layers else nn.Identity()
+        self.head = nn.Linear(d, int(num_classes))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.head(self.backbone(x))
+
+
+@torch.no_grad()
+def _ema_update(teacher: nn.Module, student: nn.Module, m: float) -> None:
+    for pt, ps in zip(teacher.parameters(), student.parameters()):
+        pt.data.mul_(m).add_((1.0 - m) * ps.data)
+
+
+def _tab_weak_aug(x: torch.Tensor, noise_std: float = 0.01) -> torch.Tensor:
+    if noise_std <= 0:
+        return x
+    return x + noise_std * torch.randn_like(x)
+
+
+def _tab_strong_aug(x: torch.Tensor, noise_std: float = 0.05, drop_p: float = 0.15) -> torch.Tensor:
+    out = x
+    if noise_std > 0:
+        out = out + noise_std * torch.randn_like(out)
+    if drop_p > 0:
+        mask = (torch.rand_like(out) < drop_p).float()
+        out = out * (1.0 - mask)
+    return out
+
+
+def _inverse_freq_class_weights(y_labels: np.ndarray, K: int) -> torch.Tensor:
+    """Balanced weights from label counts (mean 1.0)."""
+    counts = np.bincount(np.asarray(y_labels).astype(np.int64), minlength=K).astype(np.float64)
+    w = 1.0 / np.maximum(counts, 1.0)
+    w = w / (w.mean() + 1e-12)
+    return torch.tensor(w, dtype=torch.float32)
+
+
+def _invsqrt_capped_class_weights(
+    y_labels: np.ndarray, K: int, cap: float = 4.0,
+) -> torch.Tensor:
+    """
+    Gentler than full inverse-frequency: w_c ∝ 1/sqrt(n_c), mean-normalized, then clipped.
+    Stabilizes minority uplift for SSL (e.g. UCI-BANK) without shattering overall accuracy.
+    """
+    counts = np.bincount(np.asarray(y_labels).astype(np.int64), minlength=K).astype(np.float64)
+    w = 1.0 / np.sqrt(np.maximum(counts, 1.0))
+    w = w / (w.mean() + 1e-12)
+    lo, hi = 1.0 / float(cap), float(cap)
+    w = np.clip(w, lo, hi)
+    w = w / (w.mean() + 1e-12)
+    return torch.tensor(w.astype(np.float32))
+
+
+def _focal_loss_masked(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    alpha_per_class: torch.Tensor,
+    gamma: float,
+    mask: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """Focal loss with per-class alpha (on CPU float tensor -> device)."""
+    ce = F.cross_entropy(logits, target, reduction="none")
+    pt = torch.exp(-ce)
+    alpha_t = alpha_per_class.to(logits.device)[target]
+    fl = alpha_t * (1.0 - pt).clamp(min=0.0, max=1.0) ** float(gamma) * ce
+    if mask is not None:
+        return (fl * mask).sum() / mask.sum().clamp_min(1.0)
+    return fl.mean()
+
+
+def _tune_binary_threshold(
+    y_lab: np.ndarray,
+    p_pos: np.ndarray,
+    objective: str = "min_recall",
+) -> Tuple[float, float, Dict[str, float]]:
+    """
+    Choose threshold t on P(class=1) so that cluster := 1[p >= t] optimizes a
+    clustering-friendly objective on the *labeled* subset only (no leakage from
+    unlabeled labels — only scores used from unlabeled are model probabilities).
+
+    Objectives:
+      - min_recall: maximize min(recall_0, recall_1) (default — elevates worst class)
+      - balanced_acc: maximize (recall_0 + recall_1) / 2
+    """
+    y_lab = np.asarray(y_lab).astype(np.int64).ravel()
+    p_pos = np.asarray(p_pos).astype(np.float64).ravel()
+    assert len(y_lab) == len(p_pos)
+
+    def _score_for_pred(pred: np.ndarray) -> Tuple[float, Dict[str, float]]:
+        m0 = y_lab == 0
+        m1 = y_lab == 1
+        r0 = float((pred[m0] == 0).mean()) if m0.any() else 1.0
+        r1 = float((pred[m1] == 1).mean()) if m1.any() else 1.0
+        bal = 0.5 * (r0 + r1)
+        mn = min(r0, r1)
+        if objective == "balanced_acc":
+            sc = bal
+        else:
+            sc = mn
+        return sc, {"recall0": r0, "recall1": r1, "balanced_acc": bal, "min_recall": mn}
+
+    best_t, best_sc = 0.5, -1.0
+    best_stats: Dict[str, float] = {}
+    for t in np.linspace(0.0, 1.0, 401):
+        pred = (p_pos >= t).astype(np.int64)
+        sc, st = _score_for_pred(pred)
+        if sc > best_sc:
+            best_sc, best_t = sc, float(t)
+            best_stats = st
+    return best_t, best_sc, best_stats
+
+
+def run_clustering_tabular_fixmatch(
+    X0: torch.Tensor,
+    y: torch.Tensor,
+    num_classes: int,
+    *,
+    aux_labeled_frac: float,
+    seed: int,
+    epochs: int = 120,
+    batch_labeled: int = 256,
+    mu: int = 5,
+    lr: float = 2e-3,
+    weight_decay: float = 1e-4,
+    ema_momentum: float = 0.996,
+    tau: float = 0.95,
+    lambda_u: float = 1.0,
+    width: int = 512,
+    depth: int = 2,
+    noise_w: float = 0.01,
+    noise_s: float = 0.05,
+    drop_p: float = 0.15,
+    class_balanced: bool = True,
+    focal_gamma: float = 0.0,
+    binary_threshold_tune: bool = False,
+    threshold_objective: str = "min_recall",
+    label_smoothing: float = 0.0,
+    ce_class_weights: Optional[str] = None,
+    ce_weight_cap: float = 4.0,
+    prior_logit_adjust: bool = False,
+    prior_logit_scale: float = 1.0,
+    device: str = "cpu",
+) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+    """
+    FixMatch-style SSL for tabular data (client-0 view only).
+    Produces cluster ids by teacher argmax; conf is max softmax prob.
+
+    When ``class_balanced`` is True, inverse-frequency weights are computed from the
+    *auxiliary labeled subset only* (no label leakage from unlabeled data).
+
+    ``ce_class_weights`` (optional) overrides the boolean: ``"inverse"`` (same as full
+    inverse freq), ``"inv_sqrt_capped"`` (gentler; good for UCI-BANK minority recall).
+
+    If ``prior_logit_adjust`` is True, at inference apply
+    ``logits_c - prior_logit_scale * log(pi_c)`` (``pi`` from auxiliary labeled counts only).
+    Use ``prior_logit_scale`` in ``(0, 1]`` to soften the correction when overall accuracy drops.
+
+    If ``focal_gamma`` > 0, applies focal modulation (helps minority classes when imbalanced).
+
+    For **binary** (K==2), set ``binary_threshold_tune=True`` to assign clusters by a threshold
+    on P(y=1) chosen on the auxiliary labeled subset to maximize ``min_recall`` (or balanced
+    accuracy). This aligns **discrete cluster ids** with **soft ranking** and fixes argmax
+    failures under heavy imbalance (e.g. UCI-BANK).
+    """
+    _set_deterministic(seed)
+    dev = torch.device(device if (device == "cuda" and torch.cuda.is_available()) else "cpu")
+    y_np = y.detach().cpu().numpy().astype(np.int64)
+    K = int(num_classes)
+    lab_idx, unlab_idx, split_meta = stratified_labeled_unlabeled(y_np, aux_labeled_frac, seed, K)
+
+    X_np = X0.detach().cpu().numpy().astype(np.float32)
+    if X_np.ndim > 2:
+        X_np = X_np.reshape(X_np.shape[0], -1)
+
+    # Standardize using all samples (no labels used)
+    X_sc = StandardScaler(with_mean=True, with_std=True).fit_transform(X_np).astype(np.float32)
+    X_t = torch.tensor(X_sc, dtype=torch.float32)
+    X_lab = X_t[lab_idx]
+    Y_lab = torch.tensor(y_np[lab_idx], dtype=torch.long)
+    X_un = X_t[unlab_idx]
+
+    d_in = int(X_lab.shape[1])
+    student = _TabMLP(d_in, K, width=width, depth=depth, p_drop=0.1).to(dev)
+    teacher = copy.deepcopy(student).to(dev)
+    for p in teacher.parameters():
+        p.requires_grad = False
+
+    # Class weights from auxiliary labels only (VFL-realistic)
+    def _resolve_alpha() -> torch.Tensor:
+        mode = (ce_class_weights or "").strip().lower()
+        if mode == "inv_sqrt_capped":
+            return _invsqrt_capped_class_weights(Y_lab.numpy(), K, cap=float(ce_weight_cap))
+        if mode == "inverse":
+            return _inverse_freq_class_weights(Y_lab.numpy(), K)
+        if class_balanced:
+            return _inverse_freq_class_weights(Y_lab.numpy(), K)
+        return torch.ones(K, dtype=torch.float32)
+
+    alpha_cls = _resolve_alpha()
+    ce_weight = alpha_cls.to(dev) if focal_gamma <= 0 else None
+    if ce_weight is not None and torch.allclose(
+        ce_weight.cpu(), torch.ones(K, dtype=torch.float32), atol=1e-6
+    ):
+        ce_weight = None
+
+    # Balanced labeled iterator (avoids label collapse with tiny aux set)
+    rng = np.random.RandomState(seed)
+    idx_by_c = [np.where(Y_lab.numpy() == c)[0] for c in range(K)]
+    per_class = max(2, batch_labeled // max(1, K))
+
+    def _next_lab_batch() -> Tuple[torch.Tensor, torch.Tensor]:
+        xs, ys = [], []
+        for c in range(K):
+            if len(idx_by_c[c]) == 0:
+                continue
+            pick = rng.choice(idx_by_c[c], size=per_class, replace=True)
+            xs.append(X_lab[pick])
+            ys.append(torch.full((per_class,), c, dtype=torch.long))
+        xb = torch.cat(xs, 0)
+        yb = torch.cat(ys, 0)
+        return xb, yb
+
+    un_loader = DataLoader(
+        TensorDataset(X_un),
+        batch_size=int(batch_labeled * mu),
+        shuffle=True,
+        drop_last=True,
+        generator=torch.Generator().manual_seed(seed),
+    )
+    un_it = iter(un_loader)
+
+    opt = torch.optim.AdamW(student.parameters(), lr=float(lr), weight_decay=float(weight_decay))
+
+    for ep in range(1, int(epochs) + 1):
+        student.train()
+        ls_sum, lu_sum, cnt = 0.0, 0.0, 0
+        steps = max(1, len(un_loader))
+        for _ in range(steps):
+            xb_l, yb_l = _next_lab_batch()
+            xb_l = xb_l.to(dev)
+            yb_l = yb_l.to(dev)
+            xw_l = _tab_weak_aug(xb_l, noise_std=float(noise_w))
+            logits_l = student(xw_l)
+            if focal_gamma > 0:
+                Ls = _focal_loss_masked(logits_l, yb_l, alpha_cls, float(focal_gamma))
+            else:
+                ls_kw: Dict[str, Any] = {"weight": ce_weight}
+                if float(label_smoothing) > 0.0:
+                    ls_kw["label_smoothing"] = float(label_smoothing)
+                Ls = F.cross_entropy(logits_l, yb_l, **ls_kw)
+
+            try:
+                (xb_u,) = next(un_it)
+            except StopIteration:
+                un_it = iter(un_loader)
+                (xb_u,) = next(un_it)
+            xb_u = xb_u.to(dev)
+            xw_u = _tab_weak_aug(xb_u, noise_std=float(noise_w))
+            xs_u = _tab_strong_aug(xb_u, noise_std=float(noise_s), drop_p=float(drop_p))
+
+            with torch.no_grad():
+                pu = torch.softmax(teacher(xw_u), dim=1)
+                conf_u, yhat = pu.max(dim=1)
+                mask = (conf_u >= float(tau)).float()
+            logits_u = student(xs_u)
+            if focal_gamma > 0:
+                ce_u = F.cross_entropy(logits_u, yhat, reduction="none")
+                pt_u = torch.exp(-ce_u)
+                alpha_u = alpha_cls.to(dev)[yhat]
+                Lu = (alpha_u * (1.0 - pt_u).clamp(0, 1) ** float(focal_gamma) * ce_u * mask).sum() / mask.sum().clamp_min(1.0)
+            else:
+                w_u = ce_weight[yhat] if ce_weight is not None else torch.ones_like(yhat, dtype=torch.float32)
+                Lu = (F.cross_entropy(logits_u, yhat, reduction="none") * w_u * mask).sum() / mask.sum().clamp_min(1.0)
+
+            loss = Ls + float(lambda_u) * Lu
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            _ema_update(teacher, student, float(ema_momentum))
+            ls_sum += float(Ls.item())
+            lu_sum += float(Lu.item())
+            cnt += 1
+
+        if ep % 20 == 0 or ep == int(epochs):
+            with torch.no_grad():
+                teacher.eval()
+                p_lab = torch.softmax(teacher(X_lab.to(dev)), dim=1).cpu().numpy()
+                ids_lab = p_lab.argmax(axis=1)
+                y_lab_np = Y_lab.numpy()
+                acc_lab = float((ids_lab == y_lab_np).mean())
+                per_c = []
+                for c in range(K):
+                    m = y_lab_np == c
+                    if m.sum() == 0:
+                        continue
+                    per_c.append(float((ids_lab[m] == c).mean()))
+                min_c = min(per_c) if per_c else acc_lab
+            print(f"  [TabFixMatch] {ep:03d}/{epochs} Ls={ls_sum/max(1,cnt):.3f} "
+                  f"Lu={lu_sum/max(1,cnt):.3f} lab_acc={acc_lab:.3f} min_class_acc={min_c:.3f}")
+
+    # Prior for optional logit adjustment (auxiliary labeled counts only)
+    _cnt_l = np.bincount(y_np[lab_idx], minlength=K).astype(np.float64)
+    _pi_l = _cnt_l / (_cnt_l.sum() + 1e-12)
+    log_pi_t = torch.tensor(np.log(_pi_l + 1e-12), dtype=torch.float32, device=dev)
+
+    # Predict all
+    teacher.eval()
+    probs = []
+    bs = 2048
+    with torch.no_grad():
+        for i in range(0, len(X_t), bs):
+            xb = X_t[i:i + bs].to(dev)
+            logits = teacher(xb)
+            if prior_logit_adjust:
+                sc = float(max(0.0, min(float(prior_logit_scale), 10.0)))
+                logits = logits - sc * log_pi_t[None, :]
+            probs.append(torch.softmax(logits, dim=1).cpu())
+    P = torch.cat(probs, 0).numpy()
+    p_pos = P[:, 1].astype(np.float64)
+
+    th_meta: Dict[str, Any] = {"enabled": False}
+    if K == 2 and binary_threshold_tune:
+        t_star, sc_star, st = _tune_binary_threshold(
+            y_np[lab_idx], p_pos[lab_idx], objective=str(threshold_objective)
+        )
+        ids = (p_pos >= t_star).astype(np.int64)
+        conf = np.maximum(P[:, 0], P[:, 1]).astype(np.float32)
+        th_meta = {
+            "enabled": True,
+            "threshold": float(t_star),
+            "objective": str(threshold_objective),
+            "labeled_score": float(sc_star),
+            **{k: float(v) for k, v in st.items()},
+        }
+    else:
+        ids = P.argmax(axis=1).astype(np.int64)
+        conf = P.max(axis=1).astype(np.float32)
+
+    meta = {
+        "split": split_meta,
+        "pipeline": "tabular_fixmatch",
+        "epochs": int(epochs),
+        "batch_labeled": int(batch_labeled),
+        "mu": int(mu),
+        "tau": float(tau),
+        "lambda_u": float(lambda_u),
+        "width": int(width),
+        "depth": int(depth),
+        "noise_w": float(noise_w),
+        "noise_s": float(noise_s),
+        "drop_p": float(drop_p),
+        "class_balanced": bool(class_balanced),
+        "ce_class_weights": ce_class_weights,
+        "ce_weight_cap": float(ce_weight_cap),
+        "prior_logit_adjust": bool(prior_logit_adjust),
+        "prior_logit_scale": float(prior_logit_scale),
+        "prior_from_labeled": _pi_l.tolist(),
+        "focal_gamma": float(focal_gamma),
+        "label_smoothing": float(label_smoothing),
+        "binary_threshold": th_meta,
+    }
     return ids, conf, meta
 
 

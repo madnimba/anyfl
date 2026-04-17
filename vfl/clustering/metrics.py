@@ -141,6 +141,66 @@ def per_class_fragmentation(cm: np.ndarray) -> List[Dict[str, Any]]:
     return out
 
 
+def per_class_matched_purity(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    num_classes: int,
+    hung_mapping: Dict[int, int],
+) -> Tuple[List[Dict[str, Any]], Dict[str, float]]:
+    """
+    After Hungarian cluster→class matching, treat each point's *matched class* as prediction.
+
+    - recall_matched[c] = P(matched_cluster == c | y_true == c)  ("purity" of recovering class c)
+    - precision_matched[c] = P(y_true == c | matched_cluster == c)
+    """
+    y_true = np.asarray(y_true).astype(np.int64).ravel()
+    y_pred = np.asarray(y_pred).astype(np.int64).ravel()
+    n = len(y_true)
+    pred_class = np.empty(n, dtype=np.int64)
+    for i in range(n):
+        cid = int(y_pred[i])
+        pred_class[i] = int(hung_mapping.get(cid, -1))
+
+    rows: List[Dict[str, Any]] = []
+    recalls: List[float] = []
+    precs: List[float] = []
+    for c in range(num_classes):
+        mask_t = y_true == c
+        n_c = int(mask_t.sum())
+        if n_c == 0:
+            rows.append(
+                {
+                    "class": c,
+                    "n": 0,
+                    "recall_matched": None,
+                    "precision_matched": None,
+                }
+            )
+            continue
+        rec = float((pred_class[mask_t] == c).sum()) / n_c
+        mask_p = pred_class == c
+        n_p = int(mask_p.sum())
+        prec = float((y_true[mask_p] == c).sum()) / max(1, n_p)
+        rows.append(
+            {
+                "class": c,
+                "n": n_c,
+                "recall_matched": rec,
+                "precision_matched": prec,
+            }
+        )
+        recalls.append(rec)
+        precs.append(prec)
+
+    summary = {
+        "macro_recall_matched": float(np.mean(recalls)) if recalls else 0.0,
+        "macro_precision_matched": float(np.mean(precs)) if precs else 0.0,
+        "min_recall_matched": float(np.min(recalls)) if recalls else 0.0,
+        "min_precision_matched": float(np.min(precs)) if precs else 0.0,
+    }
+    return rows, summary
+
+
 def random_partition_baseline(
     y_true: np.ndarray,
     n_clusters: int,
@@ -181,12 +241,20 @@ def compute_clustering_metrics(
     pur = purity_score(y_true, y_pred, n_clusters=n_clusters)
 
     h_acc = None
-    hung_mapping = None
+    hung_mapping: Optional[Dict[int, int]] = None
+    hung_mapping_json: Optional[Dict[str, int]] = None
     if linear_sum_assignment is not None:
         h_acc, _, hung_mapping = hungarian_cluster_accuracy(y_true, y_pred, num_classes=num_classes)
-        hung_mapping = {str(k): int(v) for k, v in hung_mapping.items()}
+        hung_mapping_json = {str(k): int(v) for k, v in hung_mapping.items()}
 
     cm = confusion_cluster_by_class(y_true, y_pred, num_classes=num_classes, n_clusters=n_clusters)
+
+    per_class_matched: Optional[List[Dict[str, Any]]] = None
+    matched_summary: Optional[Dict[str, float]] = None
+    if hung_mapping is not None:
+        per_class_matched, matched_summary = per_class_matched_purity(
+            y_true, y_pred, num_classes, hung_mapping
+        )
 
     out: Dict[str, Any] = {
         "n_samples": int(len(y_true)),
@@ -200,11 +268,18 @@ def compute_clustering_metrics(
         "v_measure": float(v_m),
         "purity": float(pur),
         "hungarian_accuracy": float(h_acc) if h_acc is not None else None,
-        "hungarian_cluster_to_class": hung_mapping,
+        "hungarian_cluster_to_class": hung_mapping_json,
         "confusion_cluster_by_class": cm.tolist(),
         "per_cluster": per_cluster_stats(cm),
         "per_class": per_class_fragmentation(cm),
     }
+
+    if per_class_matched is not None and matched_summary is not None:
+        out["per_class_matched_purity"] = per_class_matched
+        out["macro_recall_matched"] = matched_summary["macro_recall_matched"]
+        out["macro_precision_matched"] = matched_summary["macro_precision_matched"]
+        out["min_recall_matched"] = matched_summary["min_recall_matched"]
+        out["min_precision_matched"] = matched_summary["min_precision_matched"]
 
     if include_random_baseline:
         out["baseline"] = random_partition_baseline(y_true, n_clusters=n_clusters, seed=random_seed)

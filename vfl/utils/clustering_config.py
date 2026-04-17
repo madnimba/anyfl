@@ -27,6 +27,14 @@ class ClusteringTrainConfig:
     device: str = "cuda"
     # Optional projector for contrastive (same dim as emb if 0 = disabled)
     proj_dim: int = 0
+    # CIFAR-10/100 client-0 RGB pipeline (run_clustering_cifar_custom); ignored elsewhere
+    simclr_pretrain_epochs: Optional[int] = None  # None = built-in default per dataset; 0 = skip SimCLR
+    cifar_linear_probe_epochs: int = 25
+    rgb_encoder_width: int = 0   # 0 = built-in default per dataset
+    rgb_feat_dim: int = 0        # 0 = built-in default per dataset
+    fixmatch_tau: float = 0.0    # 0 = built-in default per dataset
+    fixmatch_mu: int = 0         # 0 = use 7
+    gmm_merge_n_components: int = 0  # 0 = auto (min(2*K, 120))
 
 
 @dataclass(frozen=True)
