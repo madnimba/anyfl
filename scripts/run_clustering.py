@@ -28,7 +28,11 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from vfl.clustering.metrics import compute_clustering_metrics, metrics_to_jsonable
+from vfl.clustering.metrics import (
+    compute_clustering_metrics,
+    mean_label_entropy_per_cluster_weighted,
+    metrics_to_jsonable,
+)
 from vfl.clustering.semi_sup import (
     canonical_export_prefix,
     export_cluster_files,
@@ -40,10 +44,16 @@ from vfl.clustering.semi_sup import (
     run_clustering_mushroom_custom,
     run_clustering_har_custom,
     run_clustering_bank_custom,
+    run_clustering_bank_unsup_gmm,
+    run_clustering_bank_unsup_kmeans,
     run_clustering_tabular_fixmatch,
 )
-from vfl.data.bank_special import balanced_bank_feature_split
+from vfl.data.bank_special import (
+    balanced_bank_feature_split,
+    informative_skewed_bank_feature_split,
+)
 from vfl.data.registry import DatasetRequest, load_dataset
+from vfl.partition.har_mi import partition_har_mi_ranked_features
 from vfl.partition.kway import partition_image_width, partition_tabular_features
 from vfl.utils.clustering_config import ClusteringExperimentConfig, dump_clustering_config_yaml, load_clustering_config
 from vfl.utils.repro import get_env_info, get_git_info, make_run_dir, set_global_seed, write_json
@@ -154,61 +164,6 @@ def _partition_mushroom_by_aux_mi(
     return parts, meta
 
 
-def _partition_continuous_by_aux_mi(
-    X: torch.Tensor,
-    y: torch.Tensor,
-    k_clients: int,
-    aux_labeled_frac: float,
-    seed: int,
-) -> tuple[list[torch.Tensor], dict]:
-    """
-    MI-rank continuous features using auxiliary labels, split into k_clients.
-    Client-0 gets the top-MI-ranked block (most informative features).
-    Used for HAR and similar continuous-feature tabular datasets.
-    """
-    from vfl.clustering.semi_sup import stratified_labeled_unlabeled
-
-    X_np = X.detach().cpu().numpy().astype(np.float32)
-    y_np = y.detach().cpu().numpy().astype(np.int64)
-    N, D = X_np.shape
-
-    lab_idx, _, split_meta = stratified_labeled_unlabeled(
-        y_np, float(aux_labeled_frac), int(seed),
-        num_classes=int(y_np.max()) + 1,
-    )
-
-    from sklearn.feature_selection import mutual_info_classif
-    mi = mutual_info_classif(
-        X_np[lab_idx], y_np[lab_idx],
-        discrete_features=False, random_state=int(seed),
-    )
-    order = np.argsort(-mi).astype(np.int64)
-
-    parts: list[torch.Tensor] = []
-    rank_slices: list[list[int]] = []
-    base = D // int(k_clients)
-    rem = D % int(k_clients)
-    start = 0
-    for i in range(int(k_clients)):
-        width = base + (1 if i < rem else 0)
-        end = min(D, start + width)
-        idx = order[start:end]
-        parts.append(X[:, idx])
-        rank_slices.append([int(start), int(end)])
-        start = end
-
-    meta = {
-        "kind": "tabular_features_ranked_aux",
-        "k_clients": int(k_clients),
-        "input_shape": [int(N), int(D)],
-        "ranking": "mutual_info_continuous_aux_labels",
-        "aux_split": split_meta,
-        "rank_slices": rank_slices,
-        "ranked_feature_order": order.tolist(),
-    }
-    return parts, meta
-
-
 def _partition_bank_by_aux_mi(
     X: torch.Tensor,
     y: torch.Tensor,
@@ -297,12 +252,22 @@ def run_one(cfg: ClusteringExperimentConfig, repo_root: str) -> str:
 
     # ── Partition (MI-ranked for tabular, width-based for vision) ──
     if dname in {"UCI-BANK", "BANK"}:
-        # Balanced mixed split (paper-style): MI-ranked client-0 view hurt Bank TabFixMatch
-        # in practice (noisy MI from rare positives). Keep deterministic round-robin.
         num_dim = int((ds.meta or {}).get("num_dim", 0))
-        X_parts_train, part_meta = balanced_bank_feature_split(
-            ds.X_train, cfg.k_clients, num_dim=num_dim, seed=cfg.seed,
-        )
+        bsplit = str(getattr(cfg, "bank_attack_split", "balanced") or "balanced").strip().lower()
+        if bsplit == "skewed_attacker":
+            X_parts_train, part_meta = informative_skewed_bank_feature_split(
+                ds.X_train,
+                ds.y_train,
+                cfg.k_clients,
+                num_dim=num_dim,
+                attacker_share=float(cfg.bank_attack_share),
+                attacker_idx=int(cfg.bank_attack_attacker_idx),
+                seed=cfg.seed,
+            )
+        else:
+            X_parts_train, part_meta = balanced_bank_feature_split(
+                ds.X_train, cfg.k_clients, num_dim=num_dim, seed=cfg.seed,
+            )
     elif dname in {"UCI-MUSHROOM", "MUSHROOM"}:
         X_parts_train, part_meta = _partition_mushroom_by_aux_mi(
             ds.X_train,
@@ -312,11 +277,20 @@ def run_one(cfg: ClusteringExperimentConfig, repo_root: str) -> str:
             seed=cfg.seed,
         )
     elif dname in {"UCI-HAR", "HAR", "UCIHAR"}:
-        X_parts_train, part_meta = _partition_continuous_by_aux_mi(
-            ds.X_train, ds.y_train, cfg.k_clients,
-            aux_labeled_frac=cfg.aux_labeled_frac,
-            seed=cfg.seed,
-        )
+        hsplit = str(getattr(cfg, "har_attack_split", "mi_ranked") or "mi_ranked").strip().lower()
+        if hsplit == "even":
+            X_parts_train, part_meta = partition_tabular_features(ds.X_train, cfg.k_clients)
+        else:
+            hs = getattr(cfg, "har_attack_share", None)
+            X_parts_train, part_meta = partition_har_mi_ranked_features(
+                ds.X_train,
+                ds.y_train,
+                cfg.k_clients,
+                aux_labeled_frac=float(cfg.aux_labeled_frac),
+                seed=cfg.seed,
+                attacker_share=float(hs) if hs is not None else None,
+                attacker_idx=int(getattr(cfg, "har_attack_attacker_idx", 0)),
+            )
     elif _is_image_tensor(ds.X_train):
         X_parts_train, part_meta = partition_image_width(ds.X_train, cfg.k_clients)
     else:
@@ -434,35 +408,61 @@ def run_one(cfg: ClusteringExperimentConfig, repo_root: str) -> str:
                 device=device,
             )
         elif dname in {"UCI-BANK", "BANK"}:
-            # Tabular FixMatch: gentle sqrt-inverse class weights + prior logit adjust at infer
-            # (both from aux labels only) to lift minority-class recall without breaking ~0.87+ Hungarian.
-            ids_np, conf_np, train_meta = run_clustering_tabular_fixmatch(
-                X0, y_train, K,
-                aux_labeled_frac=cfg.aux_labeled_frac,
-                seed=cfg.seed,
-                epochs=120,
-                batch_labeled=ct.batch_size,
-                mu=5,
-                lr=2e-3,
-                weight_decay=1e-4,
-                ema_momentum=0.996,
-                tau=0.97,
-                lambda_u=1.0,
-                width=512,
-                depth=2,
-                noise_w=0.01,
-                noise_s=0.05,
-                drop_p=0.10,
-                class_balanced=False,
-                focal_gamma=0.0,
-                binary_threshold_tune=False,
-                label_smoothing=0.0,
-                ce_class_weights="inv_sqrt_capped",
-                ce_weight_cap=3.0,
-                prior_logit_adjust=True,
-                prior_logit_scale=0.45,
-                device=device,
-            )
+            k_atk = cfg.bank_attack_clusters
+            if k_atk is not None and int(k_atk) > 2:
+                pca_d = min(48, max(8, int(X0.shape[-1]) // 2))
+                meth = str(cfg.bank_attack_method).strip().lower()
+                if meth == "gmm":
+                    ids_np, conf_np, train_meta = run_clustering_bank_unsup_gmm(
+                        X0,
+                        n_clusters=int(k_atk),
+                        seed=cfg.seed,
+                        pca_dim=pca_d,
+                        gmm_restarts=24,
+                        gmm_cov=str(ct.gmm_covariance),
+                    )
+                elif meth == "kmeans":
+                    ids_np, conf_np, train_meta = run_clustering_bank_unsup_kmeans(
+                        X0,
+                        n_clusters=int(k_atk),
+                        seed=cfg.seed,
+                        pca_dim=pca_d,
+                    )
+                else:
+                    raise ValueError(
+                        f"Unknown bank_attack_method={cfg.bank_attack_method!r} "
+                        f"(expected 'gmm' or 'kmeans')"
+                    )
+            else:
+                # Tabular FixMatch: gentle sqrt-inverse class weights + prior logit adjust at infer
+                # (both from aux labels only) to lift minority-class recall without breaking ~0.87+ Hungarian.
+                ids_np, conf_np, train_meta = run_clustering_tabular_fixmatch(
+                    X0, y_train, K,
+                    aux_labeled_frac=cfg.aux_labeled_frac,
+                    seed=cfg.seed,
+                    epochs=120,
+                    batch_labeled=ct.batch_size,
+                    mu=5,
+                    lr=2e-3,
+                    weight_decay=1e-4,
+                    ema_momentum=0.996,
+                    tau=0.97,
+                    lambda_u=1.0,
+                    width=512,
+                    depth=2,
+                    noise_w=0.01,
+                    noise_s=0.05,
+                    drop_p=0.10,
+                    class_balanced=False,
+                    focal_gamma=0.0,
+                    binary_threshold_tune=False,
+                    label_smoothing=0.0,
+                    ce_class_weights="inv_sqrt_capped",
+                    ce_weight_cap=3.0,
+                    prior_logit_adjust=True,
+                    prior_logit_scale=0.45,
+                    device=device,
+                )
         elif dname in {"UCI-HAR", "HAR", "UCIHAR"}:
             # HAR: tabular FixMatch tends to outperform unsupervised GMM/KMeans for purity.
             ids_np, conf_np, train_meta = run_clustering_tabular_fixmatch(
@@ -515,11 +515,19 @@ def run_one(cfg: ClusteringExperimentConfig, repo_root: str) -> str:
 
     # ── Metrics ──
     y_np = y_train.detach().cpu().numpy().astype(np.int64)
+    n_clust_metric = int(ids_np.max()) + 1 if len(ids_np) else 0
     metrics = compute_clustering_metrics(
         y_np, ids_np,
-        num_classes=K, n_clusters=K,
+        num_classes=K, n_clusters=n_clust_metric,
         random_seed=cfg.seed, include_random_baseline=True,
     )
+    if (
+        cfg.bank_attack_clusters is not None
+        and int(cfg.bank_attack_clusters) > 2
+        and K <= 10
+    ):
+        mix = mean_label_entropy_per_cluster_weighted(y_np, ids_np, K)
+        metrics["oracle_weighted_mean_label_entropy_per_cluster"] = float(mix)
 
     # ── Save run directory ──
     export_prefix = canonical_export_prefix(ds.name)
@@ -554,8 +562,34 @@ def run_one(cfg: ClusteringExperimentConfig, repo_root: str) -> str:
         os.makedirs(export_dir, exist_ok=True)
         for _k, p in art.items():
             shutil.copy2(p, os.path.join(export_dir, os.path.basename(p)))
+        # UCI-HAR: persist MI column order + seed so Phase II can verify it matches
+        # ``partition_for_dataset`` (must use the same seed / aux_frac / share as Phase I).
+        if dname in {"UCI-HAR", "HAR", "UCIHAR"} and isinstance(part_meta, dict):
+            ro = part_meta.get("ranked_feature_order")
+            if ro is not None:
+                ro_path = os.path.join(export_dir, f"{export_prefix}_mi_rank_order.npy")
+                np.save(ro_path, np.asarray(ro, dtype=np.int64))
+                with open(
+                    os.path.join(export_dir, f"{export_prefix}_mi_partition_seed.txt"),
+                    "w",
+                    encoding="utf-8",
+                ) as sf:
+                    sf.write(str(int(cfg.seed)))
 
     _print_metrics_line(ds.name, export_prefix, metrics)
+    if cfg.bank_attack_clusters is not None and int(cfg.bank_attack_clusters) > 2:
+        print(
+            "[NOTE] bank_attack_clusters>2: Hungarian_accuracy vs true classes is not the "
+            "attack success metric (many clusters → one-to-one mapping looks 'bad').",
+            flush=True,
+        )
+        if "oracle_weighted_mean_label_entropy_per_cluster" in metrics:
+            he = metrics["oracle_weighted_mean_label_entropy_per_cluster"]
+            print(
+                f"[NOTE] oracle_weighted_mean_label_entropy(per cluster)={he:.4f} "
+                f"(binary max≈0.693 when clusters mix labels)",
+                flush=True,
+            )
     return paths.root
 
 

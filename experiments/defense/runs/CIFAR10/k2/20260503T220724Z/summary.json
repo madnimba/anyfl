@@ -1,0 +1,54 @@
+{
+  "acc_clean": 0.8895999789237976,
+  "attacker_client_idx_used": 1,
+  "attacker_probe_result": {
+    "chosen_attacker_idx": 1,
+    "chosen_drop": 0.1550999879837036,
+    "clean_acc": 0.8895999789237976,
+    "k_clients": 2,
+    "per_client": [
+      {
+        "acc_when_masked": 0.7515000104904175,
+        "client_idx": 0,
+        "drop_from_clean": 0.13809996843338013
+      },
+      {
+        "acc_when_masked": 0.734499990940094,
+        "client_idx": 1,
+        "drop_from_clean": 0.1550999879837036
+      }
+    ],
+    "task": "multiclass"
+  },
+  "attacker_train_embeddings_npy": "experiments/defense/runs/CIFAR10/k2/20260503T220724Z/clean/attacker_train_embeddings.npy",
+  "dataset": "CIFAR10",
+  "defense": {
+    "rgar_downweight": false,
+    "rgar_full": true,
+    "rgar_yaml_overrides": {
+      "recon_batch_size": 128,
+      "recon_epochs": 140,
+      "ref_frac": 0.1,
+      "ref_warmup_epochs": 14
+    },
+    "run_naked_poisoned": true
+  },
+  "k_clients": 2,
+  "per_strategy": {
+    "optimal_topk": {
+      "acc_naked_poisoned": 0.45890000462532043,
+      "acc_rgar_full": 0.11079999804496765,
+      "rgar_meta_full": {
+        "attack_detect_rate_pct": 100.0,
+        "attributed_malicious_a": false,
+        "downweight_only": false,
+        "epochs": 80,
+        "ref_frac": 0.1,
+        "ref_n": 5000,
+        "rho_a": 1.0,
+        "rho_b": 1.0
+      }
+    }
+  },
+  "swap_use_clean_encoder_geometry": true
+}

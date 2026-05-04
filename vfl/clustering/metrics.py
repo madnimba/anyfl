@@ -218,6 +218,39 @@ def random_partition_baseline(
     }
 
 
+def mean_label_entropy_per_cluster_weighted(
+    y_true: np.ndarray,
+    cluster_ids: np.ndarray,
+    num_classes: int,
+) -> float:
+    """Weighted mean of ``H(Y | cluster=c)`` over non-empty clusters (nats).
+
+    Oracle diagnostic only. For binary ``num_classes=2``, the per-cluster
+    maximum is ``log(2) ≈ 0.693`` when labels are 50/50 within the cluster.
+    **Higher** values mean clusters **mix** true labels — often desirable for
+    cluster-*swap* attacks when ``n_clusters ≫ num_classes`` (Hungarian accuracy
+    vs classes will look poor by design).
+    """
+    y_true = np.asarray(y_true, dtype=np.int64).ravel()
+    cluster_ids = np.asarray(cluster_ids, dtype=np.int64).ravel()
+    if len(y_true) != len(cluster_ids):
+        raise ValueError("length mismatch")
+    C = int(num_classes)
+    tot_w = 0.0
+    acc = 0.0
+    for c in np.unique(cluster_ids):
+        m = cluster_ids == int(c)
+        n = int(m.sum())
+        if n == 0:
+            continue
+        cnt = np.bincount(y_true[m], minlength=C).astype(np.float64)
+        p = cnt / (cnt.sum() + 1e-12)
+        h = float(-np.sum(p * np.log(p + 1e-12)))
+        acc += h * n
+        tot_w += n
+    return float(acc / max(tot_w, 1.0))
+
+
 def compute_clustering_metrics(
     y_true: np.ndarray,
     y_pred: np.ndarray,

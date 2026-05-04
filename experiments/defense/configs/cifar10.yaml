@@ -1,0 +1,53 @@
+# CIFAR-10: cluster-swap + RGAR (KPartyEmbeddingFusion + width-split RandAug).
+# Matches attack-side training (AdamW, augment_cifar10). Uses the same
+# ``use_clean_encoder_geometry`` swap path as ``experiments/attack/configs/cifar10.yaml``
+# so donor geometry aligns with Phase-I encoder clusters.
+#
+# Runner: python3 scripts/run_attack_defense.py --config experiments/defense/configs/cifar10.yaml
+# Phase I: ./clusters/CIFAR10_ids.npy
+dataset: CIFAR-10
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+train:
+  epochs: 80
+  batch_size: 1024
+  lr: 0.001
+  weight_decay: 0.01
+  optimizer: adamw
+  augment_cifar10: true
+swap:
+  strategies:
+    - optimal_topk
+    - class_flip
+    - derangement
+    - paired_clusters
+    - round_robin
+    - random_clusters
+    - random_per_sample
+  attacker_client_idx: 0
+  attacker_probe: true
+  topk: 3
+  core_q: 0.6
+  cluster_dir: ./clusters
+  protect_test: true
+  use_signature_cache: false
+  ignore_cluster_conf: true
+  use_clean_encoder_geometry: true
+  save_attacker_embeddings: true
+stealth_oracle_labels: true
+use_split_lenet: false
+
+defense:
+  # CIFAR/STL runs merge ``_RGAR_VISION_DEFAULTS`` (higher tau_pair, lower recon blend floors)
+  # before these keys; set ``use_rgar_vision_defaults: false`` to use flatten-style RGAR only.
+  run_naked_poisoned: true
+  rgar_full: true
+  rgar_downweight: false
+  rgar:
+    # Stronger reference + recon budget for vision (raise toward 360 for paper).
+    ref_frac: 0.10
+    ref_warmup_epochs: 14
+    recon_epochs: 140
+    recon_batch_size: 512

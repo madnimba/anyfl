@@ -1,0 +1,39 @@
+# CPU-friendly smoke (tiny epochs). Full train still uses all CIFAR train rows
+# so cluster ids stay aligned; wall time is dominated by recon + a few epochs.
+dataset: CIFAR-10
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+train:
+  epochs: 1
+  batch_size: 256
+  lr: 0.001
+  weight_decay: 0.01
+  optimizer: adamw
+  augment_cifar10: true
+  device: cpu
+swap:
+  strategies:
+    - optimal_topk
+  attacker_client_idx: 0
+  attacker_probe: false
+  topk: 3
+  core_q: 0.6
+  cluster_dir: ./clusters
+  protect_test: true
+  use_signature_cache: false
+  ignore_cluster_conf: true
+  use_clean_encoder_geometry: true
+  save_attacker_embeddings: false
+use_split_lenet: false
+
+defense:
+  run_naked_poisoned: true
+  rgar_full: true
+  rgar_downweight: false
+  rgar:
+    ref_frac: 0.06
+    ref_warmup_epochs: 1
+    recon_epochs: 2
+    recon_batch_size: 64

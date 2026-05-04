@@ -1,0 +1,36 @@
+{
+  "acc_clean": 0.5121999979019165,
+  "attacker_client_idx_used": 0,
+  "attacker_train_embeddings_npy": null,
+  "dataset": "CIFAR10",
+  "defense": {
+    "rgar_downweight": false,
+    "rgar_full": true,
+    "rgar_yaml_overrides": {
+      "recon_batch_size": 64,
+      "recon_epochs": 2,
+      "ref_frac": 0.06,
+      "ref_warmup_epochs": 1
+    },
+    "run_naked_poisoned": true,
+    "use_rgar_vision_defaults": true
+  },
+  "k_clients": 2,
+  "per_strategy": {
+    "optimal_topk": {
+      "acc_naked_poisoned": 0.1088000014424324,
+      "acc_rgar_full": 0.10000000149011612,
+      "rgar_meta_full": {
+        "attack_detect_rate_pct": 100.0,
+        "attributed_malicious_a": false,
+        "downweight_only": false,
+        "epochs": 1,
+        "ref_frac": 0.06,
+        "ref_n": 3000,
+        "rho_a": 1.0,
+        "rho_b": 1.0
+      }
+    }
+  },
+  "swap_use_clean_encoder_geometry": true
+}

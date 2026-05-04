@@ -109,6 +109,106 @@ def load_openml_bank_vfl_paper(cfg: DataConfig, drop_duration: bool = True) -> D
     )
 
 
+def informative_skewed_bank_feature_split(
+    X: torch.Tensor,
+    y: torch.Tensor,
+    k_clients: int,
+    num_dim: int,
+    attacker_share: float = 0.75,
+    aux_labeled_frac: float = 0.05,
+    attacker_idx: int = 0,
+    seed: int = 0,
+) -> Tuple[List[torch.Tensor], Dict]:
+    """**Attacker-favoring** vertical split for UCI-BANK.
+
+    Computes mutual information ``I(x_d; y)`` on a small stratified aux subset
+    (size ``aux_labeled_frac * N``) using ``sklearn.feature_selection.mutual_info_classif``
+    with the proper ``discrete_features`` mask (continuous = first ``num_dim``
+    columns, one-hot = rest), then routes the **top ``attacker_share``** of
+    columns by MI to the attacker (default client 0) and round-robins the rest
+    to the remaining clients.
+
+    Threat model: realistic VFL setup where the curious party already holds a
+    higher-information slice. With this split the **passive** client is
+    deliberately weak, so cluster-swap poison on the attacker view can no longer
+    be silently "ignored" by the server. Use only via the BANK attack pipeline
+    (``bank_attack_split: skewed_attacker``) — the default clean-accuracy path
+    keeps :func:`balanced_bank_feature_split` so non-BANK and clean BANK runs
+    are unchanged.
+    """
+    if X.ndim != 2:
+        raise ValueError(f"Expected X [N,D], got shape={tuple(X.shape)}")
+    N, D = int(X.shape[0]), int(X.shape[1])
+    k = int(k_clients)
+    if k <= 0:
+        raise ValueError("k_clients must be positive")
+    if num_dim < 0 or num_dim > D:
+        raise ValueError("num_dim out of range")
+    if attacker_idx < 0 or attacker_idx >= k:
+        raise ValueError(f"attacker_idx={attacker_idx} out of range for k={k}")
+    share = float(attacker_share)
+    if not (0.0 < share <= 1.0):
+        raise ValueError("attacker_share must be in (0, 1]")
+
+    from sklearn.feature_selection import mutual_info_classif
+
+    X_np = X.detach().cpu().numpy().astype(np.float32)
+    y_np = y.detach().cpu().numpy().astype(np.int64).ravel()
+
+    rng = np.random.RandomState(int(seed))
+    classes = np.unique(y_np)
+    aux: List[np.ndarray] = []
+    for c in classes:
+        idx_c = np.where(y_np == c)[0]
+        n_c = max(8, int(len(idx_c) * float(aux_labeled_frac)))
+        n_c = min(n_c, len(idx_c))
+        aux.append(rng.choice(idx_c, size=n_c, replace=False))
+    lab_idx = np.concatenate(aux)
+
+    discrete_mask = np.array(
+        [False] * min(num_dim, D) + [True] * max(0, D - num_dim),
+        dtype=bool,
+    )
+    mi = mutual_info_classif(
+        X_np[lab_idx],
+        y_np[lab_idx],
+        discrete_features=discrete_mask,
+        random_state=int(seed),
+    )
+    order = np.argsort(-mi).astype(np.int64)
+
+    n_attacker = max(1, int(round(share * D)))
+    n_attacker = min(n_attacker, D - max(0, k - 1))
+    attacker_cols = order[:n_attacker].tolist()
+    rest_cols = [int(c) for c in order[n_attacker:]]
+
+    party_indices: List[List[int]] = [[] for _ in range(k)]
+    party_indices[int(attacker_idx)] = list(map(int, attacker_cols))
+
+    other_slots = [i for i in range(k) if i != int(attacker_idx)]
+    if other_slots:
+        for i, idx in enumerate(rest_cols):
+            party_indices[other_slots[i % len(other_slots)]].append(int(idx))
+
+    parts = [X[:, idxs] if len(idxs) else X[:, :0] for idxs in party_indices]
+    meta = {
+        "kind": "bank_skewed_mi_attacker",
+        "k_clients": k,
+        "input_shape": [N, D],
+        "num_dim": int(num_dim),
+        "attacker_idx": int(attacker_idx),
+        "attacker_share": float(share),
+        "n_attacker_features": int(n_attacker),
+        "ranking": "mutual_info_mixed_aux_labels",
+        "aux_labeled_frac": float(aux_labeled_frac),
+        "aux_n": int(len(lab_idx)),
+        "indices": party_indices,
+        "ranked_feature_order": order.tolist(),
+        "mi_top10_values": mi[order[: min(10, D)]].astype(float).tolist(),
+    }
+    return parts, meta
+
+
 def balanced_bank_feature_split(
     X: torch.Tensor,
     k_clients: int,

@@ -1,0 +1,15 @@
+{
+  "metrics": {
+    "accuracy": 0.10000000149011612
+  },
+  "rgar_meta": {
+    "attack_detect_rate_pct": 100.0,
+    "attributed_malicious_a": false,
+    "downweight_only": false,
+    "epochs": 1,
+    "ref_frac": 0.06,
+    "ref_n": 3000,
+    "rho_a": 1.0,
+    "rho_b": 1.0
+  }
+}

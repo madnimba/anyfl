@@ -1,0 +1,14 @@
+{
+  "cluster_dir": "./clusters",
+  "swap_result_meta": {
+    "core_q": 0.6,
+    "geometry": "clean_encoder",
+    "greedy_diverse_donors": true,
+    "n_clusters": 10,
+    "seed": 0,
+    "strategy": "optimal_topk",
+    "topk": 3,
+    "topk_map_path": "./clusters/CIFAR10_geomclean_topk.json",
+    "union_topk_donor_pools": true
+  }
+}

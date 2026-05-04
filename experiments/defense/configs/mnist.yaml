@@ -1,0 +1,48 @@
+# MNIST: cluster-swap attack + RGAR defense (K=2 legacy flatten VFL).
+# Requires Phase I: ./clusters/MNIST_ids.npy (same as attack workflow).
+# Runner: python3 scripts/run_attack_defense.py --config experiments/defense/configs/mnist.yaml
+#
+# Scope: MNIST / Fashion-MNIST only for this defense path (see scripts/run_attack_defense.py).
+dataset: MNIST
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+  train_samples: null
+  test_samples: null
+  tabular_train_fraction: 0.85
+train:
+  epochs: 80
+  batch_size: 128
+  lr: 0.001
+  weight_decay: 0.0
+  optimizer: adam
+swap:
+  strategies:
+    - optimal_topk
+    - derangement
+    - paired_clusters
+    - round_robin
+    - random_clusters
+    - random_per_sample
+  attacker_client_idx: 0
+  attacker_probe: true
+  topk: 5
+  core_q: 0.55
+  cluster_dir: ./clusters
+  protect_test: true
+  use_signature_cache: false
+stealth_oracle_labels: true
+use_split_lenet: false
+
+defense:
+  # Standard training on poisoned data (no mitigation).
+  run_naked_poisoned: true
+  # Full RGAR: reference trust + honest-view recon + suspicion-weighted fusion.
+  rgar_full: true
+  # Optional ablation (adds a full extra training run per strategy).
+  rgar_downweight: false
+  # Overrides for server_rgar_defense.RGARConfig (unset keys keep library defaults).
+  # Lower recon_epochs vs blueprint default 360 for wall-clock; raise for paper runs.
+  rgar:
+    recon_epochs: 120

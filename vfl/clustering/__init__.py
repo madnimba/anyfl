@@ -10,6 +10,8 @@ from vfl.clustering.semi_sup import (
     run_clustering_mushroom_custom,
     run_clustering_har_custom,
     run_clustering_bank_custom,
+    run_clustering_bank_unsup_gmm,
+    run_clustering_bank_unsup_kmeans,
     run_clustering_tabular_fixmatch,
 )
 
@@ -26,5 +28,7 @@ __all__ = [
     "run_clustering_mushroom_custom",
     "run_clustering_har_custom",
     "run_clustering_bank_custom",
+    "run_clustering_bank_unsup_gmm",
+    "run_clustering_bank_unsup_kmeans",
     "run_clustering_tabular_fixmatch",
 ]

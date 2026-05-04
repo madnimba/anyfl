@@ -1,0 +1,49 @@
+{
+  "acc_clean": 0.8715000152587891,
+  "attacker_client_idx_used": 0,
+  "attacker_probe_result": {
+    "chosen_attacker_idx": 0,
+    "chosen_drop": 0.4181000292301178,
+    "clean_acc": 0.8715000152587891,
+    "k_clients": 2,
+    "per_client": [
+      {
+        "acc_when_masked": 0.45339998602867126,
+        "client_idx": 0,
+        "drop_from_clean": 0.4181000292301178
+      },
+      {
+        "acc_when_masked": 0.46810001134872437,
+        "client_idx": 1,
+        "drop_from_clean": 0.4034000039100647
+      }
+    ],
+    "task": "multiclass"
+  },
+  "dataset": "FASHIONMNIST",
+  "defense": {
+    "rgar_downweight": false,
+    "rgar_full": true,
+    "rgar_yaml_overrides": {
+      "recon_epochs": 120
+    },
+    "run_naked_poisoned": true
+  },
+  "k_clients": 2,
+  "per_strategy": {
+    "optimal_topk": {
+      "acc_naked_poisoned": 0.7166000008583069,
+      "acc_rgar_full": 0.7379000186920166,
+      "rgar_meta_full": {
+        "attack_detect_rate_pct": 100.0,
+        "attributed_malicious_a": true,
+        "downweight_only": false,
+        "epochs": 80,
+        "ref_frac": 0.085,
+        "ref_n": 5100,
+        "rho_a": 0.11999999731779099,
+        "rho_b": 1.0
+      }
+    }
+  }
+}

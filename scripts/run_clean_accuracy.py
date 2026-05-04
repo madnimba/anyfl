@@ -15,8 +15,8 @@ if _REPO_ROOT not in sys.path:
 from vfl.data.registry import DatasetRequest, load_dataset
 from vfl.data.bank_special import balanced_bank_feature_split
 from vfl.models.lr_vfl import KPartyLogReg
-from vfl.models.split_vision import KPartySplitLeNet, KPartySplitResNet, SplitResNetSpec
-from vfl.models.bank_paper_mlp import KPartyBankPaperMLP
+from vfl.models.legacy_flat_vfl import KPartyLegacyFlattenVFL, in_dims_from_parts
+from vfl.models.bank_paper_mlp import KPartyBankCompactMLP
 from vfl.models.tabular_mlp_vfl import KPartyTabularMLP
 from vfl.models.fusion import KPartyEmbeddingFusion
 from vfl.models.registry import default_model_config, build_kparty_modules
@@ -63,16 +63,35 @@ def run_one(cfg: ExperimentConfig, repo_root: str, out_base: str) -> str:
         model = KPartyLogReg(in_dims=in_dims)
     elif dname in {"UCI-BANK", "BANK"}:
         in_dims = tuple(int(p.shape[-1]) for p in X_parts_train_t)
-        model = KPartyBankPaperMLP(in_dims=in_dims)
+        model = KPartyBankCompactMLP(in_dims)
     elif _is_image_tensor(ds.X_train) and dname in {"MNIST", "FASHIONMNIST", "FASHION-MNIST"}:
-        in_ch = int(ds.X_train.shape[1])
-        # Use cut=0 so pooling happens on stitched activations (shape-stable for any k).
-        model = KPartySplitLeNet(in_ch=in_ch, out_dim=ds.num_classes, k_clients=cfg.k_clients, cut=0)
+        dims = in_dims_from_parts(X_parts_train_t)
+        model = KPartyLegacyFlattenVFL(dims, ds.num_classes)
     elif _is_image_tensor(ds.X_train) and dname in {"CIFAR10", "CIFAR-10", "CIFAR100", "CIFAR-100", "STL10", "STL-10"}:
         # Use embedding-fusion pipeline with dataset-specific strong encoders (see vfl/models/encoders.py presets).
         mc = default_model_config(dname, ds.task, cfg.k_clients)
         clients, head = build_kparty_modules(X_parts_train_t, out_dim=ds.num_classes, cfg=mc)
         model = KPartyEmbeddingFusion(clients, head)
+    elif dname in {"UCI-HAR", "UCIHAR", "HAR"}:
+        in_dims = tuple(int(p.shape[-1]) for p in X_parts_train_t)
+        out_dim = ds.num_classes
+        model = KPartyTabularMLP(
+            in_dims=in_dims,
+            out_dim=out_dim,
+            emb_dim=40,
+            hidden=80,
+            dropout=0.02,
+        )
+    elif dname in {"UCI-MUSHROOM", "MUSHROOM"}:
+        in_dims = tuple(int(p.shape[-1]) for p in X_parts_train_t)
+        out_dim = ds.num_classes
+        model = KPartyTabularMLP(
+            in_dims=in_dims,
+            out_dim=out_dim,
+            emb_dim=56,
+            hidden=112,
+            dropout=0.05,
+        )
     else:
         in_dims = tuple(int(p.shape[-1]) for p in X_parts_train_t)
         out_dim = ds.num_classes

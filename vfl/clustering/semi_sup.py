@@ -30,7 +30,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, MiniBatchKMeans
 from sklearn.decomposition import PCA
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import StandardScaler
@@ -2114,6 +2114,144 @@ def run_clustering_har_custom(
         "acc_gmm": float(acc_gmm),
         "acc_km": float(acc_km),
         "graph_refine": refine_meta,
+    }
+    return ids, conf, meta
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  PATH 5b: BANK — unsupervised K-way GMM on client-0 (attack-oriented clusters)
+# ═══════════════════════════════════════════════════════════════════
+
+
+def run_clustering_bank_unsup_gmm(
+    X0: torch.Tensor,
+    *,
+    n_clusters: int,
+    seed: int,
+    pca_dim: int = 48,
+    gmm_restarts: int = 24,
+    gmm_cov: str = "diag",
+) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+    """
+    **Label-free** coarse clustering of the BANK attacker view for Phase-II
+    cluster-swap experiments that need **K ≫ 2** disjoint groups.
+
+    The default BANK pipeline (TabFixMatch / BMM→2) optimizes *alignment* with
+    the binary label, which collapses cross-cluster swaps to near–label-preserving
+    permutations. Here we instead fit a standard Gaussian mixture on
+    scaled+PCA+L2-normalized features and export ``n_clusters`` posterior argmax
+    ids so ``optimal_topk`` can target **geometrically** distant clusters.
+
+    Returns ``(ids [N] in 0..K-1, conf [N] max posterior, meta)``.
+    """
+    _set_deterministic(int(seed))
+    X_np = X0.detach().cpu().numpy().astype(np.float32)
+    if X_np.ndim > 2:
+        X_np = X_np.reshape(X_np.shape[0], -1)
+    _, D = X_np.shape
+    k = max(3, int(n_clusters))
+
+    X_sc = StandardScaler(with_mean=True, with_std=True).fit_transform(X_np)
+    d_use = int(min(max(2, int(pca_dim)), D))
+    if d_use < D:
+        Zp = PCA(n_components=d_use, whiten=True, random_state=int(seed)).fit_transform(
+            X_sc
+        ).astype(np.float64)
+    else:
+        Zp = X_sc.astype(np.float64)
+
+    Z = Zp / (np.linalg.norm(Zp, axis=1, keepdims=True) + 1e-12)
+
+    best_gmm = None
+    best_ll = -np.inf
+    for r in range(int(gmm_restarts)):
+        for reg in (1e-6, 1e-5, 1e-4, 1e-3):
+            try:
+                g = GaussianMixture(
+                    n_components=k,
+                    covariance_type=str(gmm_cov),
+                    reg_covar=float(reg),
+                    random_state=int(seed) + r,
+                    init_params="kmeans",
+                    max_iter=500,
+                    n_init=2,
+                )
+                g.fit(Z)
+                ll = float(g.score(Z))
+                if ll > best_ll:
+                    best_ll, best_gmm = ll, g
+                break
+            except ValueError:
+                continue
+
+    if best_gmm is None:
+        raise RuntimeError("run_clustering_bank_unsup_gmm: GMM fit failed for all restarts")
+
+    resp = best_gmm.predict_proba(Z)
+    ids = resp.argmax(axis=1).astype(np.int64)
+    conf = resp.max(axis=1).astype(np.float32)
+
+    meta: Dict[str, Any] = {
+        "pipeline": "bank_unsup_gmm_attack_view",
+        "n_clusters_export": int(k),
+        "pca_dim": int(d_use),
+        "gmm_restarts": int(gmm_restarts),
+        "gmm_cov": str(gmm_cov),
+        "avg_loglik": float(best_ll),
+    }
+    return ids, conf, meta
+
+
+def run_clustering_bank_unsup_kmeans(
+    X0: torch.Tensor,
+    *,
+    n_clusters: int,
+    seed: int,
+    pca_dim: int = 48,
+    batch_size: int = 1024,
+) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+    """
+    Same preprocessing as :func:`run_clustering_bank_unsup_gmm`, then
+    **MiniBatchKMeans** on normalized PCA features. Often more balanced cluster
+    sizes than GMM; confidences from inverse distance to assigned centroid.
+    """
+    _set_deterministic(int(seed))
+    X_np = X0.detach().cpu().numpy().astype(np.float32)
+    if X_np.ndim > 2:
+        X_np = X_np.reshape(X_np.shape[0], -1)
+    _, D = X_np.shape
+    k = max(3, int(n_clusters))
+
+    X_sc = StandardScaler(with_mean=True, with_std=True).fit_transform(X_np)
+    d_use = int(min(max(2, int(pca_dim)), D))
+    if d_use < D:
+        Zp = PCA(n_components=d_use, whiten=True, random_state=int(seed)).fit_transform(
+            X_sc
+        ).astype(np.float64)
+    else:
+        Zp = X_sc.astype(np.float64)
+
+    Z = Zp / (np.linalg.norm(Zp, axis=1, keepdims=True) + 1e-12)
+
+    km = MiniBatchKMeans(
+        n_clusters=k,
+        random_state=int(seed),
+        batch_size=int(min(batch_size, max(32, Z.shape[0] // 4))),
+        n_init=10,
+        max_iter=300,
+    )
+    km.fit(Z)
+    ids = km.predict(Z).astype(np.int64)
+    centers = km.cluster_centers_
+    dist = np.linalg.norm(Z - centers[ids], axis=1).astype(np.float64)
+    dmax = float(dist.max()) + 1e-12
+    conf = (1.0 - dist / dmax).astype(np.float32)
+
+    meta: Dict[str, Any] = {
+        "pipeline": "bank_unsup_kmeans_attack_view",
+        "n_clusters_export": int(k),
+        "pca_dim": int(d_use),
+        "batch_size": int(min(batch_size, max(32, Z.shape[0] // 4))),
     }
     return ids, conf, meta
 
