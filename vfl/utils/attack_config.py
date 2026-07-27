@@ -73,6 +73,16 @@ class AttackExperimentConfig:
     dataset: str
     k_clients: int
     seed: int = 0
+    # Training-only seed: weight init + batch order. ``None`` (default) reproduces
+    # the historical single-seed behaviour bit-for-bit.
+    #
+    # Deliberately does NOT feed the vertical partition, the UCI-HAR / UCI-BANK MI
+    # feature ranking, or donor selection -- all of those stay keyed to ``seed`` so
+    # the cached Phase-I cluster artifacts remain valid at every training seed.
+    # This is what lets the paper report "variance over VFL training seeds with the
+    # Phase I partition held fixed"; varying ``seed`` itself would re-derive the MI
+    # column order and trip the Phase-I consistency check in run_attack.py.
+    train_seed: Optional[int] = None
     data: DataConfig = DataConfig()
     train: TrainConfig = TrainConfig()
     nuswide: Optional[NUSWIDEConfig] = None
@@ -101,6 +111,11 @@ class AttackExperimentConfig:
     # MI partition aux budget (align with clustering ``aux_labeled_frac``).
     har_aux_labeled_frac: float = 0.03
 
+    @property
+    def effective_train_seed(self) -> int:
+        """Seed for weight init / batch order. Falls back to ``seed`` when unset."""
+        return int(self.seed if self.train_seed is None else self.train_seed)
+
 
 def _maybe_dataclass(cls, obj: Any):
     if obj is None:
@@ -123,6 +138,7 @@ def attack_experiment_config_from_dict(raw: dict) -> AttackExperimentConfig:
         dataset=str(raw.get("dataset")),
         k_clients=int(raw.get("k_clients")),
         seed=int(raw.get("seed", 0)),
+        train_seed=(None if raw.get("train_seed") is None else int(raw["train_seed"])),
         data=data,
         train=train,
         nuswide=nuswide,

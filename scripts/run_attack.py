@@ -357,6 +357,10 @@ def _probe_most_informative_client(
 
 def run_one(cfg: AttackExperimentConfig, *, repo_root: str, out_base: str) -> str:
     set_global_seed(cfg.seed)
+    # Structural randomness (partition, MI ranking, donor choice) stays keyed to
+    # ``cfg.seed``; only weight init + batch order follow ``train_seed``. When
+    # ``train_seed`` is unset the two are identical and behaviour is unchanged.
+    train_seed = cfg.effective_train_seed
     ds = load_dataset(DatasetRequest(name=cfg.dataset, data_cfg=cfg.data, nuswide_cfg=cfg.nuswide))
 
     # MNIST / FashionMNIST: dedicated swap path (concentrated argmin, no greedy cycling).
@@ -413,6 +417,7 @@ def run_one(cfg: AttackExperimentConfig, *, repo_root: str, out_base: str) -> st
     _write_partition_json(os.path.join(paths.root, "partition.json"), part_meta)
 
     # Clean baseline (mirrors clean accuracy runner exactly)
+    set_global_seed(train_seed)
     model_clean = build_model_for_dataset(
         dataset_name=ds.name,
         task=ds.task,
@@ -612,6 +617,9 @@ def run_one(cfg: AttackExperimentConfig, *, repo_root: str, out_base: str) -> st
         parts_poisoned[attacker_idx] = res.X_swapped
         parts_poisoned_t = tuple(parts_poisoned)
 
+        # Donor choice above is fixed by ``cfg.seed``; re-seed here so the poisoned
+        # model's init + batch order vary with ``train_seed`` only.
+        set_global_seed(train_seed)
         model_atk = build_model_for_dataset(
             dataset_name=ds.name,
             task=ds.task,
@@ -721,6 +729,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Override attacker_client_idx (ignored when probe is on)",
     )
     p.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help=(
+            "VFL training seed (weight init + batch order). The vertical partition, "
+            "MI feature ranking and donor selection stay pinned to the config ``seed`` "
+            "so cached Phase-I cluster artifacts remain valid. Omit for current behaviour."
+        ),
+    )
+    p.add_argument(
         "--vram_profile",
         type=str,
         default="auto",
@@ -745,6 +763,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ks = args.k if args.k is not None and len(args.k) else [cfg0.k_clients]
 
     def _apply_overrides(cfg: AttackExperimentConfig) -> AttackExperimentConfig:
+        if args.seed is not None:
+            cfg = replace(cfg, train_seed=int(args.seed))
         swap_kwargs = {}
         if args.strategy is not None and len(args.strategy):
             swap_kwargs["strategies"] = _strategy_list(cfg, args.strategy)

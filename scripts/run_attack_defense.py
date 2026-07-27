@@ -21,6 +21,7 @@ import importlib.util
 import os
 import shutil
 import sys
+from dataclasses import replace as dc_replace
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -55,7 +56,11 @@ from vfl.models.legacy_flat_vfl import KPartyLegacyFlattenVFL
 from vfl.models.tabular_mlp_vfl import KPartyHarTabularAsymmetricMLP, KPartyTabularMLP
 from vfl.train.build import build_model_for_dataset, partition_for_dataset
 from vfl.train.loop import train_clean
-from vfl.utils.defense_config import load_defense_experiment_bundle, rgar_config_from_defense_block
+from vfl.utils.defense_config import (
+    DefenseExperimentBundle,
+    load_defense_experiment_bundle,
+    rgar_config_from_defense_block,
+)
 from vfl.utils.har_partition_check import verify_har_mi_rank_order_matches_artifacts
 from vfl.utils.repro import get_env_info, get_git_info, make_run_dir, set_global_seed, write_json
 
@@ -193,6 +198,9 @@ def run_one_defense(
     _assert_defense_scope(bundle)
 
     set_global_seed(cfg.seed)
+    # Partition, donor choice and the RGAR reference-set draw stay keyed to
+    # ``cfg.seed``; only weight init + batch order follow ``train_seed``.
+    train_seed = cfg.effective_train_seed
     print(f"[DEFENSE] dataset={cfg.dataset} k={cfg.k_clients} (attack+RGAR pipeline)", flush=True)
     ds = load_dataset(DatasetRequest(name=cfg.dataset, data_cfg=cfg.data, nuswide_cfg=cfg.nuswide))
 
@@ -242,6 +250,7 @@ def run_one_defense(
     else:
         write_json(pmeta_path, {"partition_meta": str(part_meta)})
 
+    set_global_seed(train_seed)
     model_clean = build_model_for_dataset(
         dataset_name=ds.name,
         task=ds.task,
@@ -414,6 +423,7 @@ def run_one_defense(
 
         if dpl.run_naked_poisoned:
             os.makedirs(os.path.join(strat_root, "naked"), exist_ok=True)
+            set_global_seed(train_seed)
             m_naked = build_model_for_dataset(
                 dataset_name=ds.name,
                 task=ds.task,
@@ -440,6 +450,7 @@ def run_one_defense(
             del m_naked
 
         if dpl.rgar_full:
+            set_global_seed(train_seed)
             m_rg = build_model_for_dataset(
                 dataset_name=ds.name,
                 task=ds.task,
@@ -476,6 +487,7 @@ def run_one_defense(
             del m_rg
 
         if dpl.rgar_downweight:
+            set_global_seed(train_seed)
             m_dw = build_model_for_dataset(
                 dataset_name=ds.name,
                 task=ds.task,
@@ -548,12 +560,28 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--strategy",
         type=str,
         nargs="*",
-        default="optimal_topk",
-        help="Optional subset of swap strategies (default: all from YAML)",
+        # A bare string here made the filter at ``strategies_filter`` do *substring*
+        # matching instead of membership; a list keeps it an exact-match filter.
+        default=["optimal_topk"],
+        help="Optional subset of swap strategies (default: optimal_topk)",
+    )
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help=(
+            "VFL training seed (weight init + batch order). Partition, donor choice "
+            "and the RGAR reference-set draw stay pinned to the config ``seed``."
+        ),
     )
     args = p.parse_args(argv)
 
     bundle = load_defense_experiment_bundle(args.config)
+    if args.seed is not None:
+        bundle = DefenseExperimentBundle(
+            attack=dc_replace(bundle.attack, train_seed=int(args.seed)),
+            defense=bundle.defense,
+        )
     cfg_path = args.config
     out = run_one_defense(
         bundle,
