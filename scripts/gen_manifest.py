@@ -313,7 +313,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             "code_commit": _git("log", "-1", "--format=%H", "--",
                                 "experiments/attack/configs", "experiments/defense/configs", "vfl"),
         }
-        with open(os.path.join(_REPO_ROOT, "experiments", "manifest.meta.json"), "w") as f:
+        _meta_path = os.path.join(_REPO_ROOT, "experiments", "manifest.meta.json")
+        if os.path.abspath(out) != os.path.join(_REPO_ROOT, "experiments", "manifest.jsonl"):
+            _meta_path = None  # writing a scratch copy: leave the real sidecar alone
+        with open(_meta_path or os.devnull, "w") as f:
             json.dump(meta, f, indent=2)
         print(f"  manifest.meta.json: commit={meta['git_commit'][:10]} "
               f"code_commit={meta['code_commit'][:10]}")

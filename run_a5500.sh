@@ -120,12 +120,28 @@ else:
     print(f"--- manifest ---\n    HEAD          {head[:10]}")
     print(f"    generated at  {meta.get('git_commit','?')[:10]}")
     print(f"    code commit   {code[:10]} (manifest saw {str(meta.get('code_commit'))[:10]})")
-    if meta.get("git_commit") and head and meta["git_commit"] != head:
-        fail.append(f"manifest generated at {meta['git_commit'][:10]} but HEAD is {head[:10]};"
-                    " run scripts/gen_manifest.py")
+    # Comparing HEAD to meta.git_commit cannot work: committing the manifest
+    # itself moves HEAD. The real invariant is that the committed manifest is
+    # byte-identical to what the checked-out code generates right now.
+    import tempfile
+    tmp = os.path.join(tempfile.mkdtemp(), "m.jsonl")
+    rc = subprocess.call([sys.executable, "scripts/gen_manifest.py", "--out",
+                          os.path.relpath(tmp, ".")],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if rc != 0:
+        fail.append("scripts/gen_manifest.py failed to run")
+    else:
+        a = open("experiments/manifest.jsonl", "rb").read()
+        b = open(tmp, "rb").read()
+        if a != b:
+            fail.append("committed manifest does not match what this code generates:\n"
+                        "       configs or gen_manifest.py changed after it was built.\n"
+                        "       Run: .venv/bin/python scripts/gen_manifest.py  (then commit)")
+        else:
+            print("    manifest matches the checked-out code (regenerated + diffed)")
     if code and meta.get("code_commit") and code != meta["code_commit"]:
-        fail.append("configs/vfl changed after the manifest was generated;"
-                    " run scripts/gen_manifest.py")
+        print(f"    note: configs/vfl at {code[:10]}, manifest built against "
+              f"{str(meta['code_commit'])[:10]} (content check above is authoritative)")
 
 if fail:
     print("\n!!! PREFLIGHT FAILED")
