@@ -37,6 +37,7 @@ cd "$(dirname "$0")"
 PY=.venv/bin/python
 WORKERS="${WORKERS:-3}"   # raise if the VM has plenty of cores: WORKERS=6 bash run_a5500.sh
 GPU="${GPU:-0}"
+GPU_SLOTS="${GPU_SLOTS:-3}"
 
 echo "=============================================================="
 echo " A5500 QUEUE  --  groups B,E,F,G,H,D  (33 jobs)"
@@ -84,7 +85,7 @@ $PY scripts/prefetch_data.py || exit 1
 if [ "${1:-}" != "--queue-only" ]; then
   echo
   echo ">>> [1/3] SMOKE PASS (--epochs 1): catches config typos, missing data, GPU OOM"
-  $PY scripts/run_queue.py --machine a5500 --workers "$WORKERS" --gpu "$GPU" --smoke || {
+  $PY scripts/run_queue.py --machine a5500 --workers "$WORKERS" --gpu "$GPU" --gpu-slots "$GPU_SLOTS" --smoke || {
     echo "!!! SMOKE FAILED -- fix before the real queue.  logs: results/logs_smoke/"
     exit 1
   }
@@ -94,12 +95,12 @@ fi
 # ── Tier 1 first, so a clock overrun only costs Tier 2/3 ───────────────────
 echo
 echo ">>> [2/3] TIER 1 (groups E, F -- must complete)"
-$PY scripts/run_queue.py --machine a5500 --workers "$WORKERS" --gpu "$GPU" --tiers 1
+$PY scripts/run_queue.py --machine a5500 --workers "$WORKERS" --gpu "$GPU" --gpu-slots "$GPU_SLOTS" --tiers 1
 
 echo
 echo ">>> [3/3] TIER 2 then TIER 3 (B, G, H then D -- D is cut first if time runs out)"
-$PY scripts/run_queue.py --machine a5500 --workers "$WORKERS" --gpu "$GPU" --tiers 2
-$PY scripts/run_queue.py --machine a5500 --workers "$WORKERS" --gpu "$GPU" --tiers 3
+$PY scripts/run_queue.py --machine a5500 --workers "$WORKERS" --gpu "$GPU" --gpu-slots "$GPU_SLOTS" --tiers 2
+$PY scripts/run_queue.py --machine a5500 --workers "$WORKERS" --gpu "$GPU" --gpu-slots "$GPU_SLOTS" --tiers 3
 RC=$?
 
 echo

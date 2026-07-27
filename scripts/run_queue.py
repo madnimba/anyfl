@@ -135,7 +135,12 @@ def run_job(
     attempt: int,
 ) -> int:
     env = dict(os.environ)
-    env["CUDA_VISIBLE_DEVICES"] = (gpu or "") if j.get("needs_gpu") else ""
+    # Honour the config's own device. Forcing "" here would silently demote every
+    # job whose config has no explicit device: key from GPU to CPU.
+    if str(j.get("device", "auto")) == "cpu":
+        env["CUDA_VISIBLE_DEVICES"] = ""
+    else:
+        env["CUDA_VISIBLE_DEVICES"] = gpu if gpu is not None else ""
     for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
         env[var] = str(threads)
 
@@ -173,7 +178,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--manifest", default="experiments/manifest.jsonl")
     p.add_argument("--workers", type=int, default=4)
     p.add_argument("--gpu", type=str, default=None,
-                   help="Physical GPU index for jobs flagged needs_gpu (e.g. 0).")
+                   help="Physical GPU index offered to jobs whose config wants CUDA (e.g. 0).")
+    p.add_argument("--gpu-slots", type=int, default=2,
+                   help="Max concurrent GPU jobs (CIFAR-10 takes all slots). Default 2.")
     p.add_argument("--tiers", type=str, default="1,2,3")
     p.add_argument("--groups", type=str, default=None, help="Comma-separated group filter, e.g. A,C")
     p.add_argument("--smoke", action="store_true",
@@ -232,6 +239,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     cores = os.cpu_count() or 4
     threads = max(1, cores // max(1, a.workers))
     log(f"{cores} cores / {a.workers} workers -> {threads} BLAS threads per job")
+    n_gpu = sum(1 for j in pending if str(j.get("device", "auto")) != "cpu")
+    log(f"{n_gpu}/{len(pending)} jobs want CUDA; gpu={a.gpu or 'none offered'} slots={a.gpu_slots}")
+
+    # Cap concurrent GPU work so parallel workers cannot OOM a single card.
+    gpu_sem = threading.BoundedSemaphore(max(1, a.gpu_slots))
 
     q: "queue.Queue[Dict[str, Any]]" = queue.Queue()
     for j in pending:
@@ -246,6 +258,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                 j = q.get_nowait()
             except queue.Empty:
                 return
+            slots = 0
+            if a.gpu is not None and str(j.get("device", "auto")) != "cpu":
+                slots = max(1, a.gpu_slots) if j.get("gpu_heavy") else 1
+            for _ in range(slots):
+                gpu_sem.acquire()
             try:
                 rc = run_job(j, python=a.python, results_path=results_path, ledger=ledger,
                              gpu=a.gpu, threads=threads, log_dir=log_dir, epochs=epochs,
@@ -265,6 +282,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 log(f"{verdict} [{n_done}/{state['n']}] {j['label']}"
                     + ("" if rc == 0 else f"  rc={rc}  see results/logs{suffix}/"))
             finally:
+                for _ in range(slots):
+                    gpu_sem.release()
                 q.task_done()
 
     t0 = time.time()

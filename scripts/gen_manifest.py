@@ -89,6 +89,23 @@ DEFENSE_HEADLINE: Dict[str, List[str]] = {
 }
 
 
+def _config_device(cfg_path: str) -> str:
+    """Effective device for a config, read from the YAML rather than at runtime.
+
+    Returns "cpu" if the config pins it explicitly, else "auto" meaning
+    TrainConfig's default, which resolves to cuda when a GPU is visible.
+    """
+    import yaml
+
+    try:
+        with open(os.path.join(_REPO_ROOT, cfg_path), "r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+    except OSError:
+        return "auto"
+    d = ((raw.get("train") or {}) or {}).get("device")
+    return str(d).strip().lower() if d else "auto"
+
+
 def _job_id(argv: List[str]) -> str:
     """Stable id from the argv, ignoring bookkeeping flags."""
     skip = {"--results-jsonl", "--job-id", "--out_base"}
@@ -116,6 +133,8 @@ def job(
 ) -> Dict[str, Any]:
     argv = [runner] + args
     jid = _job_id(argv)
+    cfg = args[args.index("--config") + 1] if "--config" in args else DATASETS[dataset]["defense"]
+    dev = _config_device(cfg)
     return {
         "job_id": jid,
         "tier": int(tier),
@@ -124,6 +143,9 @@ def job(
         "dataset": DATASETS[dataset]["name"],
         "label": label,
         "needs_gpu": bool(gpu),
+        # "cpu" = config pins it; "auto" = use the GPU if one is visible.
+        "device": dev,
+        "gpu_heavy": bool(gpu),
         "argv": argv + ["--job-id", jid],
     }
 

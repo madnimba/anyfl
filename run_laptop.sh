@@ -21,6 +21,8 @@ set -uo pipefail
 cd "$(dirname "$0")"
 PY=.venv/bin/python
 WORKERS="${WORKERS:-4}"
+GPU="${GPU:-0}"
+GPU_SLOTS="${GPU_SLOTS:-2}"
 
 echo "=============================================================="
 echo " LAPTOP QUEUE  --  groups A + C  (27 jobs)"
@@ -62,7 +64,7 @@ if [ "${1:-}" != "--queue-only" ]; then
   # ── Smoke pass ───────────────────────────────────────────────────────────
   echo
   echo ">>> [2/3] SMOKE PASS (--epochs 1): catches config typos and missing paths"
-  $PY scripts/run_queue.py --machine laptop --workers "$WORKERS" --smoke || {
+  $PY scripts/run_queue.py --machine laptop --workers "$WORKERS" --gpu "$GPU" --gpu-slots "$GPU_SLOTS" --smoke || {
     echo "!!! SMOKE FAILED -- fix before launching the real queue."
     echo "!!! logs: results/logs_smoke/"
     exit 1
@@ -73,7 +75,7 @@ fi
 # ── Real queue ─────────────────────────────────────────────────────────────
 echo
 echo ">>> [3/3] FULL QUEUE (80 epochs). Ctrl-C is safe; re-run to resume."
-$PY scripts/run_queue.py --machine laptop --workers "$WORKERS"
+$PY scripts/run_queue.py --machine laptop --workers "$WORKERS" --gpu "$GPU" --gpu-slots "$GPU_SLOTS"
 RC=$?
 
 echo

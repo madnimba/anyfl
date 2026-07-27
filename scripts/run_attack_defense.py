@@ -687,6 +687,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Override train.epochs. Omit for real runs.",
     )
     p.add_argument(
+        "--rgar-recon-epochs",
+        type=int,
+        default=None,
+        help=(
+            "Override defense.rgar.recon_epochs. The reconstructor is the dominant "
+            "cost of an RGAR job and is independent of --epochs, so this is needed "
+            "to calibrate runtime. Omit for the config value."
+        ),
+    )
+    p.add_argument(
         "--smoke",
         action="store_true",
         help=(
@@ -787,6 +797,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                 train=dc_replace(bundle.attack.train, epochs=int(_epochs)),
             ),
             defense=bundle.defense,
+        )
+    if args.rgar_recon_epochs is not None:
+        bundle = DefenseExperimentBundle(
+            attack=bundle.attack,
+            defense=dc_replace(bundle.defense, rgar={
+                **dict(bundle.defense.rgar),
+                "recon_epochs": int(args.rgar_recon_epochs),
+            }),
         )
     if args.smoke:
         # Collapse the RGAR-internal budgets too, otherwise the "fast" check

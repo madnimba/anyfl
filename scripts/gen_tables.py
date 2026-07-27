@@ -108,8 +108,46 @@ def _adaptive(r: Dict[str, Any]) -> bool:
 # ── Table builders ─────────────────────────────────────────────────────────
 
 
+# Strategies that count as CCVS. random_noise is the untargeted control and is
+# never eligible to be a dataset's headline attack.
+_CCVS = ("optimal_topk", "class_flip", "derangement", "paired_clusters",
+         "round_robin", "random_clusters", "random_per_sample")
+
+
+def _headline_strategy(rows: List[Dict[str, Any]], condition: str) -> Dict[str, str]:
+    """Strongest CCVS variant per dataset, so the caption can name it.
+
+    The submitted tables report a single "CCVS" column without saying which
+    variant produced each cell, and the variant genuinely differs by dataset
+    (UCI-BANK is class_flip, the rest optimal_topk). Undisclosed variation across
+    columns is the defect; naming it per dataset fixes it without forcing every
+    dataset onto a weaker attack.
+    """
+    by: Dict[Tuple[str, str], List[float]] = defaultdict(list)
+    for r in rows:
+        if r["condition"] != condition or _cov(r) < 1.0:
+            continue
+        if r.get("strategy") in _CCVS:
+            by[(r["dataset"], r["strategy"])].append(r["accuracy"])
+    best: Dict[str, str] = {}
+    for (ds, st), v in by.items():
+        m = agg(v)[0]
+        if ds not in best or m < agg(by[(ds, best[ds])])[0]:
+            best[ds] = st
+    return best
+
+
+def _strategy_caption(sel: Dict[str, str]) -> str:
+    if not sel:
+        return ""
+    parts = [f"{pretty(d)}: \\texttt{{{sel[d].replace('_', chr(92)+'_')}}}"
+             for d in DATASET_ORDER if d in sel]
+    return "Attack variant per dataset --- " + "; ".join(parts) + "."
+
+
 def table_attack(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
-    """Clean vs Optimal Topk at full coverage, mean +/- std over seeds."""
+    """Clean vs the strongest CCVS variant per dataset, mean +/- std over seeds."""
+    sel = _headline_strategy(rows, "attack")
     clean: Dict[str, List[float]] = defaultdict(list)
     atk: Dict[str, List[float]] = defaultdict(list)
     for r in rows:
@@ -117,19 +155,21 @@ def table_attack(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
             continue
         if r["condition"] == "clean":
             clean[r["dataset"]].append(r["accuracy"])
-        elif r["condition"] == "attack" and r.get("strategy") == "optimal_topk":
+        elif r["condition"] == "attack" and r.get("strategy") == sel.get(r["dataset"]):
             atk[r["dataset"]].append(r["accuracy"])
 
     tex = [
         r"\begin{table}[t]\centering",
-        r"\caption{Clean accuracy and CCVS (Optimal Top-$k$) attack accuracy at 100\%",
+        r"\caption{Clean accuracy and CCVS attack accuracy at 100\%",
         r"swap coverage. Mean $\pm$ std over three VFL training seeds with the Phase~I",
-        r"partition held fixed; entries without a $\pm$ are single-seed point estimates.}",
+        r"partition held fixed; entries without a $\pm$ are single-seed point estimates.",
+        _strategy_caption(sel) + "}",
         r"\label{tab:attack}",
         r"\begin{tabular}{lrrr}\toprule",
         r"Dataset & Clean (\%) & CCVS (\%) & $\Delta$ (pp) \\ \midrule",
     ]
-    txt = ["ATTACK  (clean vs Optimal Topk, full coverage)",
+    txt = ["ATTACK  (clean vs strongest CCVS variant, full coverage)",
+           "  variant per dataset: " + ", ".join(f"{pretty(d)}={sel[d]}" for d in DATASET_ORDER if d in sel),
            f"  {'dataset':<16}{'clean':>22}{'attack':>22}{'drop pp':>10}"]
     for ds in DATASET_ORDER:
         if not clean.get(ds) and not atk.get(ds):
@@ -147,6 +187,7 @@ def table_attack(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
 
 def table_defense(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
     """Clean / no-defense / RGAR, default reference settings only."""
+    sel = _headline_strategy(rows, "naked")
     buckets: Dict[Tuple[str, str], List[float]] = defaultdict(list)
     det: Dict[str, List[float]] = defaultdict(list)
     for r in rows:
@@ -165,12 +206,14 @@ def table_defense(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
 
     tex = [
         r"\begin{table}[t]\centering",
-        r"\caption{RGAR against CCVS. Mean $\pm$ std over three VFL training seeds.}",
+        r"\caption{RGAR against CCVS. Mean $\pm$ std over three VFL training seeds. ",
+        _strategy_caption(sel) + "}",
         r"\label{tab:defense}",
         r"\begin{tabular}{lrrrr}\toprule",
         r"Dataset & Clean (\%) & No defense (\%) & RGAR (\%) & Detect (\%) \\ \midrule",
     ]
     txt = ["DEFENSE  (clean / no-defense / RGAR)",
+           "  variant per dataset: " + ", ".join(f"{pretty(d)}={sel[d]}" for d in DATASET_ORDER if d in sel),
            f"  {'dataset':<16}{'clean':>22}{'no defense':>22}{'RGAR':>22}{'detect':>10}"]
     for ds in DATASET_ORDER:
         keys = [(ds, c) for c in ("clean", "naked", "rgar_full")]
