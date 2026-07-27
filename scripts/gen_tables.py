@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import json
 import math
 import os
 import sys
@@ -70,7 +71,9 @@ def fmt(vals: List[float], scale: float = 100.0) -> str:
     if n == 0:
         return "--"
     if n == 1:
-        return f"{m*scale:.1f}\\phantom{{$\\pm$0.0}}"
+        # Marked in the cell itself: a reader scanning the body must be able to
+        # tell a point estimate from a mean without consulting the caption.
+        return f"{m*scale:.1f}\\textsuperscript{{\\dag}}"
     return f"{m*scale:.1f}$\\pm${s*scale:.1f}"
 
 
@@ -337,6 +340,65 @@ def table_strategies(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
     return "\n".join(tex), "\n".join(txt)
 
 
+def _knob(r: Dict[str, Any], path: List[str]) -> Any:
+    cur: Any = r.get("config") or {}
+    for k in path:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(k)
+    return cur
+
+
+def _table_sweep(rows, *, path, title, label, header, condition="attack", fmt_key=str):
+    """One table per config knob swept across datasets."""
+    cells: Dict[Tuple[str, Any], List[float]] = defaultdict(list)
+    vals = set()
+    for r in rows:
+        if r["condition"] != condition:
+            continue
+        v = _knob(r, path)
+        if v is None:
+            continue
+        cells[(r["dataset"], v)].append(r["accuracy"])
+        vals.add(v)
+    if len(vals) < 2:
+        return "", f"{title.upper()}: needs >=2 distinct values of {'.'.join(path)}; found {sorted(vals) or 'none'}"
+    order = sorted(vals)
+    tex = [r"\begin{table}[t]\centering",
+           f"\\caption{{{title} \\textsuperscript{{\\dag}} marks a single-seed point estimate.}}",
+           f"\\label{{{label}}}",
+           r"\begin{tabular}{l" + "r" * len(order) + r"}\toprule",
+           header + " & " + " & ".join(fmt_key(v) for v in order) + r" \\ \midrule"]
+    txt = [f"{title.upper()}", f"  {'dataset':<16}" + "".join(f"{fmt_key(v):>12}" for v in order)]
+    for ds in DATASET_ORDER:
+        if not any(cells.get((ds, v)) for v in order):
+            continue
+        tex.append(f"{pretty(ds)} & " + " & ".join(fmt(cells.get((ds, v), [])) for v in order) + r" \\")
+        txt.append(f"  {pretty(ds):<16}" + "".join(
+            (f"{agg(cells[(ds,v)])[0]*100:11.2f} " if cells.get((ds, v)) else f"{'--':>11} ") for v in order))
+    tex += [r"\bottomrule\end{tabular}\end{table}"]
+    return "\n".join(tex), "\n".join(txt)
+
+
+def table_topk(rows):
+    return _table_sweep(rows, path=["swap", "topk"],
+                        title="CCVS accuracy vs top-$k$ donor-cluster count.",
+                        label="tab:topk", header="Dataset", fmt_key=lambda v: f"$k$={v}")
+
+
+def table_party(rows):
+    return _table_sweep(rows, path=["k_clients"],
+                        title="CCVS accuracy vs number of VFL parties $K$.",
+                        label="tab:party", header="Dataset", fmt_key=lambda v: f"$K$={v}")
+
+
+def table_epsilon(rows):
+    return _table_sweep(rows, path=["swap", "class_flip_aux_frac"],
+                        title="CCVS accuracy vs auxiliary label budget $\\varepsilon$.",
+                        label="tab:epsilon", header="Dataset",
+                        fmt_key=lambda v: f"$\\varepsilon$={float(v):.0%}".replace("%", r"\%"))
+
+
 def table_baselines(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
     conds = ["naked", "batch_krum_gate", "cosine_gate", "ae_gate", "rgar"]
     cells: Dict[Tuple[str, str], List[float]] = defaultdict(list)
@@ -411,6 +473,62 @@ def table_runtime(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
     return "\n".join(tex), "\n".join(txt)
 
 
+def audit(rows: List[Dict[str, Any]], manifest: str = "experiments/manifest.jsonl") -> str:
+    """Flag exactly the three failure modes that silently corrupt a table.
+
+    1. a cell the manifest promises but no row backs;
+    2. a cell whose backing rows disagree about the git SHA -- mixing pre- and
+       post-fix code inside one number is what this whole effort exists to stop;
+    3. a multi-seed group with fewer distinct seeds than the manifest requested,
+       which would silently narrow an error bar.
+    """
+    out: List[str] = ["AUDIT"]
+    mpath = os.path.join(_REPO_ROOT, manifest)
+    expected: Dict[Tuple[str, str], set] = defaultdict(set)
+    if os.path.isfile(mpath):
+        for line in open(mpath, "r", encoding="utf-8"):
+            line = line.strip()
+            if not line:
+                continue
+            j = json.loads(line)
+            a = j["argv"]
+            sd = a[a.index("--seed") + 1] if "--seed" in a else None
+            expected[(j["group"], j["dataset"])].add(sd)
+
+    got: Dict[Tuple[str, str], set] = defaultdict(set)
+    shas: Dict[Tuple[str, str], set] = defaultdict(set)
+    for r in rows:
+        k = (r["dataset"], r["condition"])
+        got[k].add(r.get("train_seed"))
+        c = (r.get("git") or {}).get("commit")
+        if c:
+            shas[k].add(c)
+
+    missing = []
+    for (grp, ds), seeds in sorted(expected.items()):
+        have = set()
+        for (d, c), sd in got.items():
+            if d == ds:
+                have |= sd
+        want = {int(x) for x in seeds if x is not None}
+        if want and not (want & have):
+            missing.append(f"{grp}/{ds} (expected seeds {sorted(want)})")
+        elif want - have:
+            out.append(f"  FEWER SEEDS  {grp}/{ds}: have {sorted(have & want)}, "
+                       f"missing {sorted(want - have)}")
+    if missing:
+        out.append("  NO BACKING ROW  " + "; ".join(missing[:8])
+                   + (f"  (+{len(missing)-8} more)" if len(missing) > 8 else ""))
+
+    mixed = [f"{d}/{c}" for (d, c), v in sorted(shas.items()) if len(v) > 1]
+    if mixed:
+        out.append("  MIXED GIT SHA   " + "; ".join(mixed))
+        out.append("                  a single number must not span code versions")
+    if len(out) == 1:
+        out.append("  clean: every expected cell backed, seeds complete, one SHA per cell")
+    return "\n".join(out)
+
+
 def provenance(rows: List[Dict[str, Any]]) -> str:
     commits = {(r.get("git") or {}).get("commit") for r in rows if (r.get("git") or {}).get("commit")}
     dirty = sum(1 for r in rows if (r.get("git") or {}).get("dirty"))
@@ -445,8 +563,9 @@ def main(argv: Optional[List[str]] = None) -> int:
               f"(searched: {[os.path.relpath(q, _REPO_ROOT) for q in paths] or 'nothing'})")
         return 0
 
-    builders = [table_attack, table_defense, table_strategies,
-                table_coverage, table_reference, table_baselines, table_runtime]
+    builders = [table_attack, table_defense, table_strategies, table_topk,
+                table_party, table_epsilon, table_coverage, table_reference,
+                table_baselines, table_runtime]
     tex_parts, txt_parts = [], []
     for b in builders:
         t, x = b(rows)
@@ -461,6 +580,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("=" * 78)
         for x in txt_parts:
             print("\n" + x)
+        print("\n" + audit(rows))
         print("\n" + provenance(rows))
         print("=" * 78)
         return 0

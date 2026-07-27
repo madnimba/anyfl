@@ -1,0 +1,5 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/bank.yaml --strategy random_noise --seed 1 --run-tag H-bank-noise --job-id e9c0c1c2d4ce6912 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14_smoke.jsonl --smoke =====
+[CLEAN] dataset=UCI-BANK k=2 acc=88.30%
+[PROBE] dataset=UCI-BANK k=2 chose attacker_client_idx=0 (drop=0.0000)
+[OK] Wrote run to: experiments/attack/runs/UCI-BANK/k2/H-bank-noise

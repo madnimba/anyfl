@@ -1,0 +1,33 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_sota_comparison.py --dataset Fashion-MNIST --seed 1 --run-tag D-fashionmnist-baselines --job-id 52779259ce81b3e2 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14_smoke.jsonl --smoke =====
+[SOTA] Fashion-MNIST: flat-VFL path — concentrated swap + device overridden to cpu
+[SOTA] dataset=Fashion-MNIST k=2 strategy=optimal_topk
+[SOTA] clean baseline acc=81.03%
+[SOTA] running: naked
+[SOTA] naked acc=27.60%
+[SOTA] running: batch_krum_gate
+[SOTA] batch_krum_gate acc=39.38% detect=4.3%
+[SOTA] running: cosine_gate
+[SOTA] cosine_gate acc=33.98% detect=99.9%
+[SOTA] running: ae_gate
+[SOTA] ae_gate acc=42.66% detect=17.8%
+[SOTA] running: rgar
+[SOTA] rgar acc=75.45% detect=100.0%
+
+Dataset: FASHIONMNIST  k=2  Attack: optimal_topk  Clean acc: 81.03%
+
+═════════════════════════════════════════════════════════════════════════════════════════
+ Defense               │ Detects (%) │ Acc (after) │ Collapse? │ Paper Reference             
+═════════════════════════════════════════════════════════════════════════════════════════
+ No Defense (naked)    │        0.0% │     27.60% ▼│       YES │ —                           
+ Batch Krum Gate       │        4.3% │     39.38% ▼│       YES │ Blanchard et al. NeurIPS'17 
+ Cosine Gate           │       99.9% │     33.98% ▼│       YES │ Cao et al. (FLTrust) NDSS'22
+ AE Gate               │       17.8% │     42.66% ▼│       YES │ Cho et al. (VFLIP) ESORICS'24
+ RGAR (ours)           │      100.0% │     75.45% ✓│       NO  │ This work                   
+─────────────────────────────────────────────────────────────────────────────────────────
+ Clean (no attack)     │           — │      81.03% │         — │                             
+═════════════════════════════════════════════════════════════════════════════════════════
+
+ Attack drop (naked):  53.43 pp  |  RGAR recovery: +47.85 pp vs naked  |  Gap to clean: 5.58 pp
+
+[SOTA] Results written to: experiments/defense/sota_comparison/runs/FASHIONMNIST/k2/D-fashionmnist-baselines

@@ -26,9 +26,9 @@ TimeoutError: [Errno 110] Connection timed out
 During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
-  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack.py", line 932, in <module>
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack.py", line 943, in <module>
     raise SystemExit(main())
-  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack.py", line 905, in main
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack.py", line 916, in main
     out_dir = run_one(
   File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack.py", line 373, in run_one
     ds = load_dataset(DatasetRequest(name=cfg.dataset, data_cfg=cfg.data, nuswide_cfg=cfg.nuswide))
@@ -99,9 +99,9 @@ TimeoutError: [Errno 110] Connection timed out
 During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
-  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack.py", line 932, in <module>
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack.py", line 943, in <module>
     raise SystemExit(main())
-  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack.py", line 905, in main
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack.py", line 916, in main
     out_dir = run_one(
   File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack.py", line 373, in run_one
     ds = load_dataset(DatasetRequest(name=cfg.dataset, data_cfg=cfg.data, nuswide_cfg=cfg.nuswide))

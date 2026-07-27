@@ -40,47 +40,104 @@ GPU="${GPU:-0}"
 GPU_SLOTS="${GPU_SLOTS:-3}"
 
 echo "=============================================================="
-echo " A5500 QUEUE  --  groups B,E,F,G,H,D  (33 jobs)"
+echo " A5500 QUEUE  --  groups D,E,F,G,H + B (CIFAR, lowest priority)"
 echo " workers=$WORKERS  cores=$(nproc)  gpu=$GPU"
 echo "=============================================================="
 
-# ── Preflight: fail loudly and early rather than 20 jobs in ────────────────
+# ── Preflight: every check that can fail must fail HERE, before any training.
+# You have no shell on this box, so this output is the only diagnostic available.
 echo
-echo ">>> [0/3] PREFLIGHT"
+echo ">>> [0/3] PREFLIGHT + MACHINE REPORT"
+echo "--- host ---"
+echo "    hostname : $(hostname)"
+echo "    nproc    : $(nproc)"
+echo "    memory   : $(free -g 2>/dev/null | awk '/^Mem:/{print $2" GB total, "$7" GB available"}')"
+echo "    disk     : $(df -h . | awk 'NR==2{print $4" free"}')"
+echo "--- gpu ---"
+if command -v nvidia-smi >/dev/null 2>&1; then
+  nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv,noheader | sed 's/^/    /'
+else
+  echo "    !! nvidia-smi not found"
+fi
+
 $PY - <<'EOF' || exit 1
-import os, sys
-ok = True
+import json, os, subprocess, sys
+fail = []
+
+# 1. torch / CUDA
 try:
     import torch
-    print(f"    torch {torch.__version__}  cuda={torch.cuda.is_available()}")
+    print(f"--- torch ---\n    {torch.__version__}  cuda_available={torch.cuda.is_available()}")
     if torch.cuda.is_available():
-        p = torch.cuda.get_device_properties(0)
-        gb = p.total_memory / 1024**3
-        print(f"    GPU: {p.name}  {gb:.1f} GB")
+        gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        print(f"    {torch.cuda.get_device_name(0)}  {gb:.1f} GB")
         if gb < 12:
-            print("    !! under 12 GB -- CIFAR-10 (group B) may OOM even at batch 512")
+            fail.append(f"GPU has {gb:.1f} GB; CIFAR-10 at batch 512 needs ~12 GB+")
     else:
-        print("    !! no CUDA -- group B (CIFAR-10) will be very slow on CPU")
+        fail.append("no CUDA: configs declare device: cuda and will fail hard")
 except Exception as e:
-    print("    !! torch import failed:", e); ok = False
-need = ["clusters/MNIST_ids.npy", "clusters/FASHIONMNIST_ids.npy",
-        "clusters/HAR_ids.npy", "clusters/MUSHROOM_ids.npy",
-        "clusters/BANK_ids.npy", "clusters/CIFAR10_ids.npy"]
-missing = [f for f in need if not os.path.isfile(f)]
-if missing:
-    print("    !! MISSING Phase-I artifacts:", missing)
-    print("       These are committed to git -- run: git pull")
-    ok = False
+    fail.append(f"torch import failed: {e}")
+
+# 2. Phase-I artifacts
+need = ["clusters/MNIST_ids.npy", "clusters/FASHIONMNIST_ids.npy", "clusters/HAR_ids.npy",
+        "clusters/MUSHROOM_ids.npy", "clusters/BANK_ids.npy", "clusters/CIFAR10_ids.npy"]
+miss = [f for f in need if not os.path.isfile(f)]
+if miss:
+    fail.append(f"missing Phase-I artifacts {miss} -- these are committed; run: git pull")
 else:
-    print(f"    Phase-I cluster artifacts: all {len(need)} present")
-sys.exit(0 if ok else 1)
+    print(f"--- phase I ---\n    all {len(need)} cluster artifacts present")
+
+# 3. CIFAR-10 must be on disk. Never let torchvision start a 170 MB download:
+#    that is exactly how the smoke pass failed on the other machine.
+cif = [p for p in ("data/cifar-10-batches-py", "cifar-10-batches-py") if os.path.isdir(p)]
+if not cif:
+    fail.append(
+        "CIFAR-10 archive not found at data/cifar-10-batches-py.\n"
+        "       Do NOT rely on the auto-download; copy it over instead:\n"
+        "         scp -r <laptop>:.../cifar-10-batches-py data/\n"
+        "       (or drop cifar-10-python.tar.gz in ./data and untar it there)")
+elif not os.path.isdir("data/cifar-10-batches-py"):
+    os.makedirs("data", exist_ok=True)
+    os.symlink(os.path.abspath(cif[0]), "data/cifar-10-batches-py")
+    print("--- cifar ---\n    symlinked", cif[0], "-> data/")
+else:
+    print("--- cifar ---\n    data/cifar-10-batches-py present")
+
+# 4. Manifest must match the checked-out code.
+def git(*a):
+    try:
+        return subprocess.check_output(["git", *a], stderr=subprocess.DEVNULL).decode().strip()
+    except Exception:
+        return ""
+mp = "experiments/manifest.meta.json"
+if not os.path.isfile(mp):
+    fail.append("experiments/manifest.meta.json missing -- run scripts/gen_manifest.py")
+else:
+    meta = json.load(open(mp))
+    head = git("rev-parse", "HEAD")
+    code = git("log", "-1", "--format=%H", "--", "experiments/attack/configs",
+               "experiments/defense/configs", "vfl")
+    print(f"--- manifest ---\n    HEAD          {head[:10]}")
+    print(f"    generated at  {meta.get('git_commit','?')[:10]}")
+    print(f"    code commit   {code[:10]} (manifest saw {str(meta.get('code_commit'))[:10]})")
+    if meta.get("git_commit") and head and meta["git_commit"] != head:
+        fail.append(f"manifest generated at {meta['git_commit'][:10]} but HEAD is {head[:10]};"
+                    " run scripts/gen_manifest.py")
+    if code and meta.get("code_commit") and code != meta["code_commit"]:
+        fail.append("configs/vfl changed after the manifest was generated;"
+                    " run scripts/gen_manifest.py")
+
+if fail:
+    print("\n!!! PREFLIGHT FAILED")
+    for f in fail:
+        print("  * " + f)
+    sys.exit(1)
+sys.exit(0)
 EOF
 echo ">>> preflight PASSED"
 
-$PY scripts/gen_manifest.py >/dev/null || exit 1
-
 # Serial dataset fetch: parallel workers racing on the same download corrupt it.
-$PY scripts/prefetch_data.py || exit 1
+$PY scripts/prefetch_data.py MNIST Fashion-MNIST UCI-HAR UCI-MUSHROOM UCI-BANK || exit 1
 
 if [ "${1:-}" != "--queue-only" ]; then
   echo

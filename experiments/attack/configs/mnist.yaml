@@ -12,8 +12,6 @@ train:
   batch_size: 128
   lr: 0.001
   weight_decay: 0.0
-  # CPU required: GPU trains the small server more effectively even on poisoned data,
-  # allowing it to partially ignore h_A and recover via h_B. CPU keeps the server confused.
   device: cuda
 swap:
   strategies:

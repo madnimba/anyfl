@@ -2,14 +2,16 @@
 # ============================================================================
 #  LAPTOP  (this machine: RTX 4060 8 GB, 16 cores)
 #
-#  Runs Tier-1 groups A and C -- the core results that must line up with the
-#  submitted numbers. These stay here because this is the machine that produced
-#  them, and because every one of these configs pins `device: cpu` deliberately
-#  (see experiments/attack/configs/mnist.yaml: on GPU the small server partly
-#  recovers from the poisoning and the attack looks weaker).
+#  Runs Tier-1 groups A, C and C2 -- the core results that must line up with the
+#  submitted numbers, on the machine and GPU that produced them.
 #
-#    Group A  clean + Optimal Topk x {MNIST, F-MNIST, HAR, Mushroom, BANK} x seeds 1-3
-#    Group C  RGAR              x {MNIST, F-MNIST, HAR, BANK}           x seeds 1-3
+#  Device is per config, never implicit. Each config declares the device its
+#  archived run used (MNIST/F-MNIST cuda; HAR/BANK/Mushroom cpu). UCI-HAR is
+#  device-sensitive: cpu gives 15.53%, cuda gives 19.35%. Do not override.
+#
+#    Group A   clean + CCVS x {MNIST, F-MNIST, HAR, Mushroom, BANK} x seeds 1-5
+#    Group C   RGAR         x {MNIST, F-MNIST, HAR, BANK}           x seeds 1-5
+#    Group C2  concentrated-swap consistency probe x {MNIST, F-MNIST}
 #
 #  Safe to Ctrl-C at any point: finished jobs are recorded in the ledger and
 #  re-running this script resumes where it stopped.
@@ -25,8 +27,8 @@ GPU="${GPU:-0}"
 GPU_SLOTS="${GPU_SLOTS:-2}"
 
 echo "=============================================================="
-echo " LAPTOP QUEUE  --  groups A + C  (27 jobs)"
-echo " workers=$WORKERS   cores=$(nproc)"
+echo " LAPTOP QUEUE  --  groups A + C + C2"
+echo " workers=$WORKERS   cores=$(nproc)   gpu=$GPU (slots=$GPU_SLOTS)"
 echo "=============================================================="
 
 $PY scripts/gen_manifest.py >/dev/null || exit 1

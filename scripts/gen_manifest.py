@@ -66,7 +66,9 @@ DATASETS: Dict[str, Dict[str, str]] = {
 }
 
 CHEAP = ["mnist", "fashionmnist", "ucihar", "mushroom", "bank"]
-SEEDS = [1, 2, 3]
+SEEDS = [1, 2, 3, 4, 5]          # group A
+SEEDS_C = [1, 2, 3, 4, 5]        # group C: measured at ~+50 min wall clock vs 3 seeds
+SEEDS_CIFAR = [1, 2, 3]          # group B, lowest priority tier
 
 # The strategy each dataset's *reported* number actually uses, read off the
 # existing runs rather than assumed. UCI-BANK's headline is class_flip
@@ -170,7 +172,7 @@ def build() -> List[Dict[str, Any]]:
 
     # ── Group C (tier 1, laptop): RGAR, 3 seeds ──────────────────────────────
     for ds in ["mnist", "fashionmnist", "ucihar", "bank"]:
-        for sd in SEEDS:
+        for sd in SEEDS_C:
             jobs.append(job(
                 tier=1, group="C", machine="laptop", dataset=ds, runner=RD,
                 label=f"C/{ds}/seed{sd}",
@@ -249,20 +251,24 @@ def build() -> List[Dict[str, Any]]:
         ))
 
     # ── Group B (tier 2, a5500): CIFAR-10 at batch 512 ───────────────────────
-    jobs.append(job(
-        tier=2, group="B", machine="a5500", dataset="cifar10", runner=RA, gpu=True,
-        label="B/cifar10/clean+optimal_topk",
-        args=["--config", DATASETS["cifar10"]["attack"],
-              "--strategy", "optimal_topk", "--seed", "1",
-              "--run-tag", "B-cifar10-s1"],
-    ))
+    # Lowest priority tier: 3 seeds of CIFAR-10 removes the "single-seed with an
+    # honest footnote" concession entirely, but at ~33 min/run it is also the
+    # first thing to drop if the A5500 runs out of clock.
+    for sd in SEEDS_CIFAR:
+        jobs.append(job(
+            tier=4, group="B", machine="a5500", dataset="cifar10", runner=RA, gpu=True,
+            label=f"B/cifar10/seed{sd}",
+            args=["--config", DATASETS["cifar10"]["attack"],
+                  "--strategy", "optimal_topk", "--seed", str(sd),
+                  "--run-tag", f"B-cifar10-s{sd}"],
+        ))
 
     # ── Group D (tier 3, a5500): SOTA defense baselines ──────────────────────
     # One invocation evaluates naked / Krum / cosine / AE / RGAR together, so
     # Table 4 comes from the same code path as everything else.
     for ds in CHEAP:
         jobs.append(job(
-            tier=3, group="D", machine="a5500", dataset=ds, runner=RS,
+            tier=1, group="D", machine="a5500", dataset=ds, runner=RS,
             label=f"D/{ds}/baselines",
             args=["--dataset", DATASETS[ds]["name"], "--seed", "1",
                   "--run-tag", f"D-{ds}-baselines"],
@@ -289,6 +295,28 @@ def main(argv: Optional[List[str]] = None) -> int:
             for j in sorted(jobs, key=lambda r: (r["tier"], r["group"], r["label"])):
                 f.write(json.dumps(j, sort_keys=True) + "\n")
         print(f"wrote {len(jobs)} jobs -> {a.out}")
+        # Sidecar so the VM can prove the manifest matches the checked-out code.
+        import subprocess, time as _t
+
+        def _git(*args):
+            try:
+                return subprocess.check_output(["git", *args], cwd=_REPO_ROOT,
+                                               stderr=subprocess.DEVNULL).decode().strip()
+            except Exception:
+                return ""
+        meta = {
+            "generated_at": _t.strftime("%Y-%m-%dT%H:%M:%S"),
+            "git_commit": _git("rev-parse", "HEAD"),
+            "git_dirty": bool(_git("status", "--porcelain")),
+            "n_jobs": len(jobs),
+            # Last commit touching anything that changes what a job means.
+            "code_commit": _git("log", "-1", "--format=%H", "--",
+                                "experiments/attack/configs", "experiments/defense/configs", "vfl"),
+        }
+        with open(os.path.join(_REPO_ROOT, "experiments", "manifest.meta.json"), "w") as f:
+            json.dump(meta, f, indent=2)
+        print(f"  manifest.meta.json: commit={meta['git_commit'][:10]} "
+              f"code_commit={meta['code_commit'][:10]}")
 
     by: Dict[Any, int] = {}
     for j in jobs:

@@ -83,12 +83,22 @@ def host_info() -> Dict[str, Any]:
         "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
     }
     try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    info["mem_total_gb"] = round(int(line.split()[1]) / 1048576.0, 1)
+                    break
+    except OSError:
+        pass
+    try:
         import torch
 
         info["torch"] = torch.__version__
         if torch.cuda.is_available():
             info["gpu_name"] = torch.cuda.get_device_name(0)
             info["gpu_count"] = int(torch.cuda.device_count())
+            info["gpu_total_mem_gb"] = round(
+                torch.cuda.get_device_properties(0).total_memory / 1024 ** 3, 1)
         else:
             info["gpu_name"] = None
             info["gpu_count"] = 0
