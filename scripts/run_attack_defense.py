@@ -198,6 +198,7 @@ def run_one_defense(
     config_source_path: Optional[str] = None,
     results_path: Optional[str] = None,
     job_id: Optional[str] = None,
+    concentrated_swap: str = "off",
 ) -> str:
     cfg = bundle.attack
     dpl = bundle.defense
@@ -442,6 +443,24 @@ def run_one_defense(
         0 if adaptive_exclude_idx is None else int(adaptive_exclude_idx.numel())
     )
 
+    # ── MNIST / Fashion-MNIST concentrated swap ──────────────────────────────
+    # scripts/run_attack.py routes these two datasets through the concentrated
+    # (pure argmin, no greedy cycling) variant; this runner historically did not.
+    # That is why the attack table and the defense table disagree about the very
+    # same quantity -- MNIST with no defense is 33.0% from run_attack.py but
+    # 74.1% from here. Default "off" preserves every existing defense number;
+    # "auto" matches the attack runner so the two tables describe one attack.
+    _cs = str(concentrated_swap).strip().lower()
+    _use_conc = _cs == "on" or (_cs == "auto" and _ra._is_flat_vfl_dataset(ds.name))
+    if _use_conc:
+        print(
+            f"[DEFENSE] {ds.name}: concentrated swap ENABLED "
+            f"(matches scripts/run_attack.py; defense numbers will differ from "
+            f"previously reported values)",
+            flush=True,
+        )
+    summary["concentrated_swap"] = bool(_use_conc)
+
     pairs_for_paired = cluster_meta.get("pairs")
 
     for strat in strategies:
@@ -460,6 +479,7 @@ def run_one_defense(
             swap_coverage=float(cfg.swap.swap_coverage),
             random_noise_sigma=float(cfg.swap.random_noise_sigma),
             exclude_victim_idx=adaptive_exclude_idx,
+            use_concentrated_topk=_use_conc,
             use_signature_cache=bool(cfg.swap.use_signature_cache),
             cluster_majority_label=cluster_majority_label if strat == "class_flip" else None,
             aux_indices_by_class=aux_pool_by_class if strat == "class_flip" else None,
@@ -641,6 +661,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Optional subset of swap strategies (default: optimal_topk)",
     )
     p.add_argument(
+        "--concentrated-swap",
+        choices=["off", "auto", "on"],
+        default="off",
+        help=(
+            "MNIST / Fashion-MNIST donor selection. 'off' (default) keeps the "
+            "greedy-diverse variant every existing defense number used. 'auto' "
+            "matches scripts/run_attack.py, making the attack and defense tables "
+            "describe the same attack -- but it changes the MNIST/F-MNIST numbers."
+        ),
+    )
+    p.add_argument(
         "--run-tag",
         type=str,
         default=None,
@@ -758,6 +789,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         config_source_path=cfg_path,
         results_path=results_path,
         job_id=args.job_id,
+        concentrated_swap=args.concentrated_swap,
     )
     print(f"[OK] Wrote defense run to: {out}", flush=True)
     return 0

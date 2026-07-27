@@ -68,6 +68,26 @@ DATASETS: Dict[str, Dict[str, str]] = {
 CHEAP = ["mnist", "fashionmnist", "ucihar", "mushroom", "bank"]
 SEEDS = [1, 2, 3]
 
+# The strategy each dataset's *reported* number actually uses, read off the
+# existing runs rather than assumed. UCI-BANK's headline is class_flip
+# (49.03%, drop 40.55pp); optimal_topk is not even in its top three. Running
+# group A/C with optimal_topk everywhere would produce error bars for numbers
+# that are not in the paper. HAR and BANK are cheap, so where the headline
+# differs we simply evaluate both in one invocation.
+HEADLINE: Dict[str, List[str]] = {
+    "mnist": ["optimal_topk"],
+    "fashionmnist": ["optimal_topk"],
+    "mushroom": ["optimal_topk"],
+    "ucihar": ["optimal_topk"],
+    "bank": ["class_flip", "optimal_topk"],
+}
+DEFENSE_HEADLINE: Dict[str, List[str]] = {
+    "mnist": ["optimal_topk"],
+    "fashionmnist": ["optimal_topk"],
+    "ucihar": ["optimal_topk"],
+    "bank": ["class_flip"],
+}
+
 
 def _job_id(argv: List[str]) -> str:
     """Stable id from the argv, ignoring bookkeeping flags."""
@@ -122,7 +142,7 @@ def build() -> List[Dict[str, Any]]:
                 tier=1, group="A", machine="laptop", dataset=ds, runner=RA,
                 label=f"A/{ds}/seed{sd}",
                 args=["--config", DATASETS[ds]["attack"],
-                      "--strategy", "optimal_topk", "--seed", str(sd),
+                      "--strategy", *HEADLINE[ds], "--seed", str(sd),
                       "--run-tag", f"A-{ds}-s{sd}"],
             ))
 
@@ -133,9 +153,25 @@ def build() -> List[Dict[str, Any]]:
                 tier=1, group="C", machine="laptop", dataset=ds, runner=RD,
                 label=f"C/{ds}/seed{sd}",
                 args=["--config", DATASETS[ds]["defense"],
-                      "--strategy", "optimal_topk", "--seed", str(sd),
+                      "--strategy", *DEFENSE_HEADLINE[ds], "--seed", str(sd),
                       "--run-tag", f"C-{ds}-s{sd}"],
             ))
+
+    # ── Group C2 (tier 1, laptop): attack/defense consistency probe ──────────
+    # The defense runner has always used the greedy-diverse swap for MNIST /
+    # Fashion-MNIST while the attack runner uses the concentrated one, so the two
+    # tables report different values for the same quantity (MNIST no-defense:
+    # 33.0% vs 74.1%). These two jobs produce the missing number so the choice of
+    # which to report can be made from data. Existing runs are untouched.
+    for ds in ["mnist", "fashionmnist"]:
+        jobs.append(job(
+            tier=1, group="C2", machine="laptop", dataset=ds, runner=RD,
+            label=f"C2/{ds}/concentrated",
+            args=["--config", DATASETS[ds]["defense"],
+                  "--strategy", "optimal_topk", "--seed", "1",
+                  "--concentrated-swap", "auto",
+                  "--run-tag", f"C2-{ds}-conc"],
+        ))
 
     # ── Group E (tier 1, a5500): swap coverage ───────────────────────────────
     for ds in ["mnist", "fashionmnist", "ucihar"]:
