@@ -22,7 +22,8 @@ import argparse
 import json
 import os
 import sys
-from dataclasses import replace
+import time
+from dataclasses import asdict, replace
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -49,6 +50,7 @@ from vfl.utils.attack_config import (
     load_attack_config,
 )
 from vfl.utils.har_partition_check import verify_har_mi_rank_order_matches_artifacts
+from vfl.utils.results_sink import append_row, default_results_path, make_row
 from vfl.utils.repro import (
     get_env_info,
     get_git_info,
@@ -355,7 +357,14 @@ def _probe_most_informative_client(
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def run_one(cfg: AttackExperimentConfig, *, repo_root: str, out_base: str) -> str:
+def run_one(
+    cfg: AttackExperimentConfig,
+    *,
+    repo_root: str,
+    out_base: str,
+    results_path: Optional[str] = None,
+    job_id: Optional[str] = None,
+) -> str:
     set_global_seed(cfg.seed)
     # Structural randomness (partition, MI ranking, donor choice) stays keyed to
     # ``cfg.seed``; only weight init + batch order follow ``train_seed``. When
@@ -430,6 +439,7 @@ def run_one(cfg: AttackExperimentConfig, *, repo_root: str, out_base: str) -> st
         har_attack_model=str(cfg.har_attack_model),
         har_attacker_idx=int(cfg.swap.attacker_client_idx),
     )
+    _t0 = time.perf_counter()
     metrics_clean = train_clean(
         model=model_clean,
         X_parts_train=X_parts_train,
@@ -439,9 +449,38 @@ def run_one(cfg: AttackExperimentConfig, *, repo_root: str, out_base: str) -> st
         task=ds.task,
         cfg=cfg.train,
     )
+    _secs_clean = time.perf_counter() - _t0
     os.makedirs(os.path.join(paths.root, "clean"), exist_ok=True)
     write_json(os.path.join(paths.root, "clean", "metrics.json"), {"metrics": metrics_clean})
     acc_clean = _primary_metric(metrics_clean)
+
+    _cfg_dict = asdict(cfg)
+
+    def _emit(condition: str, strategy, metrics, secs: float, extra=None) -> None:
+        """Append one row to the append-only results sink (no-op if unconfigured)."""
+        if not results_path:
+            return
+        append_row(
+            results_path,
+            make_row(
+                job_id=str(job_id or f"{ds.name}-k{cfg.k_clients}-{condition}-{strategy}"),
+                repo_root=repo_root,
+                config=_cfg_dict,
+                dataset=ds.name,
+                k_clients=int(cfg.k_clients),
+                seed=int(cfg.seed),
+                train_seed=int(train_seed),
+                strategy=strategy,
+                condition=condition,
+                metrics=metrics,
+                accuracy=_primary_metric(metrics),
+                wall_clock_s=secs,
+                run_dir=paths.root,
+                extra=extra,
+            ),
+        )
+
+    _emit("clean", None, metrics_clean, _secs_clean)
     print(
         f"[CLEAN] dataset={ds.name} k={cfg.k_clients} acc={acc_clean*100:.2f}%",
         flush=True,
@@ -632,6 +671,7 @@ def run_one(cfg: AttackExperimentConfig, *, repo_root: str, out_base: str) -> st
             har_attack_model=str(cfg.har_attack_model),
             har_attacker_idx=int(attacker_idx),
         )
+        _t0 = time.perf_counter()
         metrics_atk = train_clean(
             model=model_atk,
             X_parts_train=parts_poisoned_t,
@@ -641,6 +681,7 @@ def run_one(cfg: AttackExperimentConfig, *, repo_root: str, out_base: str) -> st
             task=ds.task,
             cfg=cfg.train,
         )
+        _secs_atk = time.perf_counter() - _t0
 
         out_dir = os.path.join(paths.root, str(strat))
         os.makedirs(out_dir, exist_ok=True)
@@ -675,6 +716,20 @@ def run_one(cfg: AttackExperimentConfig, *, repo_root: str, out_base: str) -> st
             "mean_shift_l2": float(stealth.get("mean_shift_l2", 0.0)),
             "diag_cov_shift_l2": float(stealth.get("diag_cov_shift_l2", 0.0)),
         }
+        _emit(
+            "attack",
+            str(strat),
+            metrics_atk,
+            _secs_atk,
+            extra={
+                "acc_clean": float(acc_clean),
+                "acc_drop": float(drop),
+                "stealth": stealth,
+                "swap_meta": res.meta,
+                "attacker_client_idx_used": int(attacker_idx),
+            },
+        )
+
         flip_s = "n/a" if dflip is None else f"{float(dflip):.2f}"
         print(
             f"[ATK] strategy={strat:<18s} acc={acc_atk*100:6.2f}% drop={drop*100:5.2f}pp "
@@ -739,6 +794,21 @@ def main(argv: Optional[List[str]] = None) -> int:
         ),
     )
     p.add_argument(
+        "--results-jsonl",
+        type=str,
+        default=None,
+        help=(
+            "Append-only JSONL results sink. Pass 'auto' for results/runs_<host>.jsonl. "
+            "Omit to write no rows (legacy behaviour)."
+        ),
+    )
+    p.add_argument(
+        "--job-id",
+        type=str,
+        default=None,
+        help="Stable manifest job id, recorded in each row so the queue can skip completed work.",
+    )
+    p.add_argument(
         "--vram_profile",
         type=str,
         default="auto",
@@ -748,6 +818,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = p.parse_args(argv)
 
     repo_root = _REPO_ROOT
+    results_path = args.results_jsonl
+    if results_path == "auto":
+        results_path = default_results_path(repo_root)
     cfg0 = load_attack_config(args.config)
     if args.dataset is not None:
         cfg0 = replace(cfg0, dataset=str(args.dataset))
@@ -789,13 +862,25 @@ def main(argv: Optional[List[str]] = None) -> int:
         cfg_fallback = _apply_overrides(cfg_fallback)
 
         try:
-            out_dir = run_one(cfg_try, repo_root=repo_root, out_base=args.out_base)
+            out_dir = run_one(
+                cfg_try,
+                repo_root=repo_root,
+                out_base=args.out_base,
+                results_path=results_path,
+                job_id=args.job_id,
+            )
             print(f"[OK] Wrote run to: {out_dir}", flush=True)
         except RuntimeError as e:
             if args.vram_profile == "auto" and _is_cuda_oom(e):
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-                out_dir = run_one(cfg_fallback, repo_root=repo_root, out_base=args.out_base)
+                out_dir = run_one(
+                    cfg_fallback,
+                    repo_root=repo_root,
+                    out_base=args.out_base,
+                    results_path=results_path,
+                    job_id=args.job_id,
+                )
                 print(f"[OK] (fallback after OOM) Wrote run to: {out_dir}", flush=True)
             else:
                 raise

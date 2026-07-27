@@ -21,6 +21,8 @@ import importlib.util
 import os
 import shutil
 import sys
+import time
+from dataclasses import asdict
 from dataclasses import replace as dc_replace
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -63,6 +65,7 @@ from vfl.utils.defense_config import (
 )
 from vfl.utils.har_partition_check import verify_har_mi_rank_order_matches_artifacts
 from vfl.utils.repro import get_env_info, get_git_info, make_run_dir, set_global_seed, write_json
+from vfl.utils.results_sink import append_row, default_results_path, make_row
 
 
 def _norm_ds(name: str) -> str:
@@ -192,6 +195,8 @@ def run_one_defense(
     out_base: str = "experiments/defense/runs",
     strategies_filter: Optional[List[str]] = None,
     config_source_path: Optional[str] = None,
+    results_path: Optional[str] = None,
+    job_id: Optional[str] = None,
 ) -> str:
     cfg = bundle.attack
     dpl = bundle.defense
@@ -263,6 +268,7 @@ def run_one_defense(
         har_attack_model=str(cfg.har_attack_model),
         har_attacker_idx=int(cfg.swap.attacker_client_idx),
     )
+    _t0 = time.perf_counter()
     metrics_clean = train_clean(
         model=model_clean,
         X_parts_train=X_parts_train,
@@ -272,7 +278,37 @@ def run_one_defense(
         task=ds.task,
         cfg=cfg.train,
     )
+    _secs_clean = time.perf_counter() - _t0
     acc_clean = _primary_metric(metrics_clean)
+
+    _cfg_dict = asdict(cfg)
+
+    def _emit(condition, strategy, metrics, secs, detect=None, extra=None):
+        """Append one row to the append-only results sink (no-op if unconfigured)."""
+        if not results_path:
+            return
+        append_row(
+            results_path,
+            make_row(
+                job_id=str(job_id or f"{ds.name}-k{cfg.k_clients}-{condition}-{strategy}"),
+                repo_root=repo_root,
+                config=_cfg_dict,
+                dataset=ds.name,
+                k_clients=int(cfg.k_clients),
+                seed=int(cfg.seed),
+                train_seed=int(train_seed),
+                strategy=strategy,
+                condition=condition,
+                metrics=metrics,
+                accuracy=_primary_metric(metrics),
+                detect_rate_pct=detect,
+                wall_clock_s=secs,
+                run_dir=paths.root,
+                extra=extra,
+            ),
+        )
+
+    _emit("clean", None, metrics_clean, _secs_clean)
     print(f"[DEFENSE] clean baseline acc={acc_clean*100:.2f}%", flush=True)
 
     attacker_idx = int(cfg.swap.attacker_client_idx)
@@ -436,6 +472,7 @@ def run_one_defense(
                 har_attack_model=str(cfg.har_attack_model),
                 har_attacker_idx=int(attacker_idx),
             )
+            _t0 = time.perf_counter()
             met_n = train_clean(
                 model=m_naked,
                 X_parts_train=parts_poisoned_t,
@@ -445,8 +482,11 @@ def run_one_defense(
                 task=ds.task,
                 cfg=cfg.train,
             )
+            _secs = time.perf_counter() - _t0
             row["acc_naked_poisoned"] = float(_primary_metric(met_n))
             write_json(os.path.join(strat_root, "naked", "metrics.json"), {"metrics": met_n})
+            _emit("naked", str(strat), met_n, _secs,
+                  extra={"acc_clean": float(acc_clean), "swap_meta": res.meta})
             del m_naked
 
         if dpl.rgar_full:
@@ -463,6 +503,7 @@ def run_one_defense(
                 har_attack_model=str(cfg.har_attack_model),
                 har_attacker_idx=int(attacker_idx),
             )
+            _t0 = time.perf_counter()
             met_rg, _st_rg, meta_rg = _train_rgar_dispatch(
                 m_rg,
                 X_parts_clean=X_parts_train,
@@ -477,8 +518,13 @@ def run_one_defense(
                 downweight_only=False,
                 seed=int(cfg.seed),
             )
+            _secs = time.perf_counter() - _t0
             row["acc_rgar_full"] = float(_primary_metric(met_rg))
             row["rgar_meta_full"] = meta_rg
+            _emit("rgar_full", str(strat), met_rg, _secs,
+                  detect=meta_rg.get("attack_detect_rate_pct"),
+                  extra={"acc_clean": float(acc_clean), "rgar_meta": meta_rg,
+                         "swap_meta": res.meta})
             os.makedirs(os.path.join(strat_root, "rgar_full"), exist_ok=True)
             write_json(
                 os.path.join(strat_root, "rgar_full", "metrics.json"),
@@ -500,6 +546,7 @@ def run_one_defense(
                 har_attack_model=str(cfg.har_attack_model),
                 har_attacker_idx=int(attacker_idx),
             )
+            _t0 = time.perf_counter()
             met_dw, _st_dw, meta_dw = _train_rgar_dispatch(
                 m_dw,
                 X_parts_clean=X_parts_train,
@@ -514,8 +561,13 @@ def run_one_defense(
                 downweight_only=True,
                 seed=int(cfg.seed),
             )
+            _secs = time.perf_counter() - _t0
             row["acc_rgar_downweight"] = float(_primary_metric(met_dw))
             row["rgar_meta_downweight"] = meta_dw
+            _emit("rgar_downweight", str(strat), met_dw, _secs,
+                  detect=meta_dw.get("attack_detect_rate_pct"),
+                  extra={"acc_clean": float(acc_clean), "rgar_meta": meta_dw,
+                         "swap_meta": res.meta})
             os.makedirs(os.path.join(strat_root, "rgar_downweight"), exist_ok=True)
             write_json(
                 os.path.join(strat_root, "rgar_downweight", "metrics.json"),
@@ -566,6 +618,21 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Optional subset of swap strategies (default: optimal_topk)",
     )
     p.add_argument(
+        "--results-jsonl",
+        type=str,
+        default=None,
+        help=(
+            "Append-only JSONL results sink. Pass 'auto' for results/runs_<host>.jsonl. "
+            "Omit to write no rows (legacy behaviour)."
+        ),
+    )
+    p.add_argument(
+        "--job-id",
+        type=str,
+        default=None,
+        help="Stable manifest job id, recorded in each row so the queue can skip completed work.",
+    )
+    p.add_argument(
         "--seed",
         type=int,
         default=None,
@@ -583,12 +650,17 @@ def main(argv: Optional[List[str]] = None) -> int:
             defense=bundle.defense,
         )
     cfg_path = args.config
+    results_path = args.results_jsonl
+    if results_path == "auto":
+        results_path = default_results_path(_REPO_ROOT)
     out = run_one_defense(
         bundle,
         repo_root=_REPO_ROOT,
         out_base=args.out_base,
         strategies_filter=args.strategy,
         config_source_path=cfg_path,
+        results_path=results_path,
+        job_id=args.job_id,
     )
     print(f"[OK] Wrote defense run to: {out}", flush=True)
     return 0
