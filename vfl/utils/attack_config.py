@@ -33,6 +33,11 @@ class AttackSwapConfig:
     # For UCI-BANK, high-conf "cores" are often label-aligned; ignoring conf mixes
     # harder donors and raises swap harm without using y.
     ignore_cluster_conf: bool = False
+    # Fraction of each cluster the attacker actually poisons, in [0, 1]. 1.0 (default)
+    # is the full-coverage setting every submitted number used; lower values leave the
+    # unselected victims with their true, unswapped view. Answers the AC's request for
+    # partial-coverage results.
+    swap_coverage: float = 1.0
     # ``class_flip`` strategy only: stratified aux fraction used to estimate per-cluster
     # majority class. Aligns with the Phase-I aux budget (consistent threat model).
     class_flip_aux_frac: float = 0.05

@@ -335,6 +335,103 @@ def _donor_pool(
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Victim-set filtering (partial coverage + reference exclusion)
+# ─────────────────────────────────────────────────────────────────────────
+#
+# Both partial swap coverage and the adaptive attacker's "don't touch the
+# defender's reference rows" behaviour are the *same* operation: restrict which
+# rows the attacker is allowed to poison. They are implemented once, here, and
+# applied uniformly after strategy dispatch, so every strategy (including
+# ``random_noise``) inherits them and no strategy grows a parallel code path.
+
+
+def _victim_mask(
+    *,
+    n: int,
+    cluster_ids: torch.Tensor,
+    coverage: float,
+    exclude_idx: Optional[torch.Tensor],
+    seed: int,
+    device: torch.device,
+) -> Tuple[Optional[torch.Tensor], Dict[str, Any]]:
+    """Boolean ``[N]`` mask of rows the attacker may poison.
+
+    Returns ``(None, {})`` for the default case (full coverage, nothing
+    excluded), which signals "no filtering at all" so the historical code path
+    is bit-for-bit unchanged.
+
+    Coverage is applied **per cluster** rather than globally: each cluster
+    contributes ``round(coverage * |cluster|)`` victims. A global subsample
+    would leave small clusters entirely poisoned or entirely clean by chance,
+    which would confound coverage with cluster size in the ablation.
+    """
+    cov = float(coverage)
+    if not (0.0 <= cov <= 1.0):
+        raise ValueError(f"swap coverage must be in [0, 1], got {cov}")
+    has_exclude = exclude_idx is not None and int(exclude_idx.numel()) > 0
+    if cov >= 1.0 and not has_exclude:
+        return None, {}
+
+    eligible = torch.ones(n, dtype=torch.bool)
+    n_excluded = 0
+    if has_exclude:
+        ex = exclude_idx.detach().cpu().reshape(-1).long()
+        eligible[ex] = False
+        n_excluded = int((~eligible).sum().item())
+
+    if cov >= 1.0:
+        mask_cpu = eligible
+    else:
+        # Dedicated generator: coverage sampling must not perturb the RNG stream
+        # the strategies use for donor assignment.
+        g = torch.Generator()
+        g.manual_seed(int(seed) * 1000003 + 911)
+        mask_cpu = torch.zeros(n, dtype=torch.bool)
+        ids_cpu = cluster_ids.detach().cpu().reshape(-1)
+        for c in torch.unique(ids_cpu).tolist():
+            rows = ((ids_cpu == int(c)) & eligible).nonzero(as_tuple=True)[0]
+            n_c = int(rows.numel())
+            if n_c == 0:
+                continue
+            k = int(round(cov * n_c))
+            if k <= 0:
+                continue
+            sel = rows[torch.randperm(n_c, generator=g)[:k]]
+            mask_cpu[sel] = True
+
+    n_victims = int(mask_cpu.sum().item())
+    meta = {
+        "swap_coverage_requested": cov,
+        "swap_coverage_realized": (float(n_victims) / float(n)) if n else 0.0,
+        "n_victims": n_victims,
+        "n_rows": int(n),
+        "n_excluded_from_victim_set": n_excluded,
+        "coverage_stratified_by_cluster": cov < 1.0,
+    }
+    return mask_cpu.to(device), meta
+
+
+def _apply_victim_mask(
+    X: torch.Tensor,
+    res: SwapResult,
+    mask: Optional[torch.Tensor],
+    mask_meta: Dict[str, Any],
+) -> SwapResult:
+    """Revert every row outside ``mask`` to its true, unpoisoned view."""
+    if mask is None:
+        return res
+    keep = ~mask
+    if bool(keep.any().item()):
+        idx = torch.arange(int(X.shape[0]), dtype=torch.long, device=res.donor_idx.device)
+        res.donor_idx = torch.where(keep.to(res.donor_idx.device), idx, res.donor_idx)
+        # Copy rather than re-gather: ``random_noise`` perturbs features instead
+        # of gathering donor rows, so ``X[donor_idx]`` would not restore it.
+        res.X_swapped[keep] = X[keep]
+    res.meta.update(mask_meta)
+    return res
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Strategy implementations: each returns (X_swapped, donor_idx, meta)
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -858,7 +955,7 @@ def _strategy_random_per_sample(
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def apply_cluster_swap_to_part(
+def _dispatch_swap_strategy(
     X_part: torch.Tensor,
     *,
     dataset_prefix: str,
@@ -877,7 +974,9 @@ def apply_cluster_swap_to_part(
     swap_geometry_vecs: Optional[torch.Tensor] = None,
     use_concentrated_topk: bool = False,
 ) -> SwapResult:
-    """Top-level entry point used by ``scripts/run_attack.py``.
+    """Strategy dispatch. Wrapped by :func:`apply_cluster_swap_to_part`, which
+    applies the victim-set filter (coverage / reference exclusion) afterwards.
+
 
     Args:
         X_part: attacker client's input tensor ``[N, ...]``.
@@ -996,3 +1095,46 @@ def apply_cluster_swap_to_part(
             V_override=swap_geometry_vecs,
         )
     raise AssertionError(f"unreachable strategy: {strategy}")
+
+
+def apply_cluster_swap_to_part(
+    X_part: torch.Tensor,
+    *,
+    swap_coverage: float = 1.0,
+    exclude_victim_idx: Optional[torch.Tensor] = None,
+    **kwargs: Any,
+) -> SwapResult:
+    """Top-level entry point used by ``scripts/run_attack.py``.
+
+    Runs the requested strategy, then restricts the poisoning to the permitted
+    victim set. See :func:`_dispatch_swap_strategy` for the strategy arguments.
+
+    Args:
+        swap_coverage: fraction of each cluster the attacker actually poisons,
+            in ``[0, 1]``. Rows not selected keep their true, unswapped view.
+            ``1.0`` (default) is the historical full-coverage behaviour and
+            skips the filter entirely.
+        exclude_victim_idx: optional row indices the attacker refuses to touch.
+            Used by the adaptive attacker to avoid the defender's clean
+            reference set, so RGAR's Stage A statistics are fit on rows that
+            were never candidates for poisoning.
+
+    Both arguments feed one shared mechanism (:func:`_victim_mask`); they
+    compose, and exclusion is applied before coverage subsampling so coverage
+    is measured over genuinely eligible rows.
+    """
+    cluster_ids = kwargs.get("cluster_ids")
+    if cluster_ids is None:
+        raise TypeError("apply_cluster_swap_to_part requires cluster_ids")
+    seed = int(kwargs.get("seed", 0))
+
+    res = _dispatch_swap_strategy(X_part, **kwargs)
+    mask, mask_meta = _victim_mask(
+        n=int(X_part.shape[0]),
+        cluster_ids=cluster_ids,
+        coverage=float(swap_coverage),
+        exclude_idx=exclude_victim_idx,
+        seed=seed,
+        device=X_part.device,
+    )
+    return _apply_victim_mask(X_part, res, mask, mask_meta)

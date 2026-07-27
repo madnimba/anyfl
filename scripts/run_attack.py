@@ -635,7 +635,8 @@ def run_one(
                 topk=int(cfg.swap.topk),
                 core_q=float(cfg.swap.core_q),
                 seed=int(cfg.seed),
-                use_signature_cache=bool(cfg.swap.use_signature_cache),
+                swap_coverage=float(cfg.swap.swap_coverage),
+            use_signature_cache=bool(cfg.swap.use_signature_cache),
                 cluster_majority_label=cluster_majority_label if strat == "class_flip" else None,
                 aux_indices_by_class=aux_pool_by_class if strat == "class_flip" else None,
                 victim_pred_class=victim_pred_class if strat == "class_flip" else None,
@@ -794,6 +795,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         ),
     )
     p.add_argument(
+        "--swap-coverage",
+        type=float,
+        default=None,
+        help=(
+            "Fraction of each cluster the attacker poisons, in [0,1]. Default 1.0 "
+            "(full coverage) reproduces every submitted number; unselected victims "
+            "keep their true, unswapped view."
+        ),
+    )
+    p.add_argument(
         "--results-jsonl",
         type=str,
         default=None,
@@ -845,6 +856,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             swap_kwargs["attacker_probe"] = args.attacker_probe == "yes"
         if args.attacker_client_idx is not None:
             swap_kwargs["attacker_client_idx"] = int(args.attacker_client_idx)
+        if args.swap_coverage is not None:
+            swap_kwargs["swap_coverage"] = float(args.swap_coverage)
         if swap_kwargs:
             cfg = replace(cfg, swap=replace(cfg.swap, **swap_kwargs))
         return cfg
