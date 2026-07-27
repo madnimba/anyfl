@@ -71,6 +71,7 @@ from vfl.train.loop import train_clean
 from vfl.utils.defense_config import load_defense_experiment_bundle, rgar_config_from_defense_block
 from vfl.utils.har_partition_check import verify_har_mi_rank_order_matches_artifacts
 from vfl.utils.repro import get_env_info, get_git_info, make_run_dir, set_global_seed, write_json
+from vfl.utils.results_sink import append_row, default_results_path, make_row
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -260,6 +261,12 @@ def _format_table(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _jsonable_cfg(cfg) -> Dict[str, Any]:
+    from dataclasses import asdict as _asdict
+
+    return _asdict(cfg)
+
+
 def run_sota_comparison(
     dataset: str,
     strategy_arg: str = "auto",
@@ -267,6 +274,10 @@ def run_sota_comparison(
     out_base: str = "experiments/defense/sota_comparison/runs",
     ref_frac: float = 0.10,
     tau_sigma: float = 2.0,
+    seed: Optional[int] = None,
+    run_tag: Optional[str] = None,
+    results_path: Optional[str] = None,
+    job_id: Optional[str] = None,
 ) -> str:
     d_key = _norm_ds(dataset)
 
@@ -288,6 +299,16 @@ def run_sota_comparison(
 
     bundle = load_defense_experiment_bundle(config_path)
     cfg = bundle.attack
+    # Training seed / run dir overrides, same semantics as the other two runners:
+    # ``seed`` here is the VFL training seed only; the partition and the reference
+    # draw stay pinned to the config seed.
+    from dataclasses import replace as _dc_replace
+
+    if seed is not None:
+        cfg = _dc_replace(cfg, train_seed=int(seed))
+    if run_tag is not None:
+        cfg = _dc_replace(cfg, run_name=str(run_tag))
+    bundle = type(bundle)(attack=cfg, defense=bundle.defense)
     dpl = bundle.defense
 
     # Detect MNIST / FashionMNIST: use concentrated swap + CPU (same logic as run_attack.py).
@@ -387,6 +408,9 @@ def run_sota_comparison(
         raise ValueError("Cluster ids length mismatch; rerun Phase I clustering for this dataset.")
 
     # Output dir
+    import time as _time_mod
+
+    _sota_t0 = _time_mod.time()
     paths = make_run_dir(out_base, ds.name, cfg.k_clients, run_name=cfg.run_name)
     os.makedirs(paths.root, exist_ok=True)
     os.makedirs(paths.artifacts_dir, exist_ok=True)
@@ -695,6 +719,35 @@ def run_sota_comparison(
         full_output["dataset_specific_notes"] = dataset_notes
     write_json(os.path.join(paths.root, "comparison.json"), full_output)
 
+    # Mirror every condition into the append-only sink so Table 4 is generated
+    # from the same rows as every other table.
+    if results_path:
+        import time as _time
+
+        for _cond, _res in comparison_results.items():
+            append_row(
+                results_path,
+                make_row(
+                    job_id=str(job_id or f"sota-{ds.name}-{_cond}"),
+                    repo_root=_REPO_ROOT,
+                    config=_jsonable_cfg(cfg),
+                    dataset=ds.name,
+                    k_clients=int(cfg.k_clients),
+                    seed=int(cfg.seed),
+                    train_seed=int(cfg.effective_train_seed),
+                    strategy=str(strategy),
+                    condition=str(_cond),
+                    metrics={"accuracy": float(_res.get("accuracy", 0.0))},
+                    accuracy=float(_res.get("accuracy", 0.0)),
+                    detect_rate_pct=_res.get("detection_rate_pct"),
+                    wall_clock_s=float(_time.time() - _sota_t0),
+                    run_dir=paths.root,
+                    extra={"acc_clean": float(acc_clean),
+                           "defense_type": _res.get("defense_type"),
+                           "sota_table": True},
+                ),
+            )
+
     table = _format_table(ds.name, int(cfg.k_clients), strategy, acc_clean, comparison_results)
     print("\n" + table, flush=True)
     with open(os.path.join(paths.root, "summary_table.txt"), "w") as f:
@@ -748,7 +801,18 @@ def main(argv: Optional[List[str]] = None) -> int:
             "AE gate flags recon error > mean_ref + tau_sigma*std_ref."
         ),
     )
+    p.add_argument("--seed", type=int, default=None,
+                   help="VFL training seed (weight init + batch order).")
+    p.add_argument("--run-tag", type=str, default=None,
+                   help="Name the output run dir instead of a UTC timestamp.")
+    p.add_argument("--results-jsonl", type=str, default=None,
+                   help="Append-only JSONL sink; 'auto' for results/runs_<host>.jsonl.")
+    p.add_argument("--job-id", type=str, default=None, help="Manifest job id.")
     args = p.parse_args(argv)
+
+    _results = args.results_jsonl
+    if _results == "auto":
+        _results = default_results_path(_REPO_ROOT)
 
     run_sota_comparison(
         dataset=args.dataset,
@@ -757,6 +821,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         out_base=args.out_base,
         ref_frac=float(args.ref_frac),
         tau_sigma=float(args.tau_sigma),
+        seed=args.seed,
+        run_tag=args.run_tag,
+        results_path=_results,
+        job_id=args.job_id,
     )
     return 0
 

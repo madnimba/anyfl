@@ -641,6 +641,21 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Optional subset of swap strategies (default: optimal_topk)",
     )
     p.add_argument(
+        "--run-tag",
+        type=str,
+        default=None,
+        help=(
+            "Name the output run directory instead of using a UTC timestamp. "
+            "Required under parallelism to avoid two jobs sharing a directory."
+        ),
+    )
+    p.add_argument(
+        "--epochs",
+        type=int,
+        default=None,
+        help="Override train.epochs. Used by the smoke pass (--epochs 1); omit for real runs.",
+    )
+    p.add_argument(
         "--adaptive-exclude-reference",
         action="store_true",
         help=(
@@ -716,6 +731,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.seed is not None:
         bundle = DefenseExperimentBundle(
             attack=dc_replace(bundle.attack, train_seed=int(args.seed)),
+            defense=bundle.defense,
+        )
+    if args.run_tag is not None:
+        bundle = DefenseExperimentBundle(
+            attack=dc_replace(bundle.attack, run_name=str(args.run_tag)),
+            defense=bundle.defense,
+        )
+    if args.epochs is not None:
+        bundle = DefenseExperimentBundle(
+            attack=dc_replace(
+                bundle.attack,
+                train=dc_replace(bundle.attack.train, epochs=int(args.epochs)),
+            ),
             defense=bundle.defense,
         )
     cfg_path = args.config

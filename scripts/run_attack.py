@@ -796,6 +796,22 @@ def main(argv: Optional[List[str]] = None) -> int:
         ),
     )
     p.add_argument(
+        "--run-tag",
+        type=str,
+        default=None,
+        help=(
+            "Name the output run directory instead of using a UTC timestamp. "
+            "Required under parallelism: two concurrent jobs on the same dataset "
+            "can otherwise land on the same second and share a directory."
+        ),
+    )
+    p.add_argument(
+        "--epochs",
+        type=int,
+        default=None,
+        help="Override train.epochs. Used by the smoke pass (--epochs 1); omit for real runs.",
+    )
+    p.add_argument(
         "--swap-coverage",
         type=float,
         default=None,
@@ -850,6 +866,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     def _apply_overrides(cfg: AttackExperimentConfig) -> AttackExperimentConfig:
         if args.seed is not None:
             cfg = replace(cfg, train_seed=int(args.seed))
+        if args.epochs is not None:
+            cfg = replace(cfg, train=replace(cfg.train, epochs=int(args.epochs)))
+        if args.run_tag is not None:
+            cfg = replace(cfg, run_name=str(args.run_tag))
         swap_kwargs = {}
         if args.strategy is not None and len(args.strategy):
             swap_kwargs["strategies"] = _strategy_list(cfg, args.strategy)
