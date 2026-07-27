@@ -32,6 +32,7 @@ Strategy = Literal[
     "random_clusters",
     "random_per_sample",
     "class_flip",
+    "random_noise",
 ]
 STRATEGIES: Tuple[Strategy, ...] = (
     "optimal_topk",
@@ -41,6 +42,7 @@ STRATEGIES: Tuple[Strategy, ...] = (
     "random_clusters",
     "random_per_sample",
     "class_flip",
+    "random_noise",
 )
 
 
@@ -950,6 +952,52 @@ def _strategy_random_per_sample(
     return SwapResult(X_swapped=X_sw, donor_idx=donor_idx, meta=meta)
 
 
+@torch.no_grad()
+def _strategy_random_noise(
+    X: torch.Tensor,
+    ids: torch.Tensor,
+    *,
+    seed: int,
+    sigma: float = 1.0,
+) -> SwapResult:
+    """Additive Gaussian perturbation of the attacker's own features.
+
+    Unlike every other strategy this performs no cross-cluster exchange: the
+    adversary corrupts its own view in place. It exists as the untargeted
+    control for the cluster-swap family -- it uses no Phase-I cluster structure
+    at all, so the gap between it and ``optimal_topk`` at matched coverage
+    isolates how much of the damage comes from *consistent, structured* swapping
+    rather than from perturbation magnitude alone.
+
+    Noise is scaled per feature by that feature's training standard deviation,
+    so ``sigma`` means the same thing across datasets with different feature
+    scales (pixels in [0,1] vs standardised tabular columns).
+
+    ``donor_idx`` stays the identity: no row is sourced from another row, so the
+    stealth report honestly records a swap rate of 0 for this strategy.
+    """
+    dev = X.device
+    N = int(X.shape[0])
+    donor_idx = torch.arange(N, dtype=torch.long, device=dev)
+    Xf = X.detach().to(torch.float32).reshape(N, -1)
+    std = Xf.std(dim=0, unbiased=False).clamp_min(1e-8)
+    g = torch.Generator(device=dev)
+    g.manual_seed(int(seed))
+    noise = torch.randn(
+        Xf.shape, generator=g, device=dev, dtype=torch.float32
+    ) * (float(sigma) * std.unsqueeze(0))
+    X_sw = (Xf + noise).reshape(X.shape).to(X.dtype)
+    meta = {
+        "strategy": "random_noise",
+        "sigma": float(sigma),
+        "seed": int(seed),
+        "noise_scaling": "per_feature_train_std",
+        "uses_cluster_structure": False,
+        "mean_abs_perturbation": float(noise.abs().mean().item()),
+    }
+    return SwapResult(X_swapped=X_sw, donor_idx=donor_idx, meta=meta)
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Public dispatch
 # ─────────────────────────────────────────────────────────────────────────
@@ -968,6 +1016,7 @@ def _dispatch_swap_strategy(
     core_q: float = 0.6,
     seed: int = 0,
     use_signature_cache: bool = False,
+    random_noise_sigma: float = 1.0,
     cluster_majority_label: Optional[Dict[int, int]] = None,
     aux_indices_by_class: Optional[Dict[int, np.ndarray]] = None,
     victim_pred_class: Optional[np.ndarray] = None,
@@ -1076,6 +1125,10 @@ def _dispatch_swap_strategy(
         return _strategy_random_clusters(X_part, cluster_ids, seed=seed)
     if s == "random_per_sample":
         return _strategy_random_per_sample(X_part, cluster_ids, seed=seed)
+    if s == "random_noise":
+        return _strategy_random_noise(
+            X_part, cluster_ids, seed=seed, sigma=float(random_noise_sigma)
+        )
     if s == "class_flip":
         if cluster_majority_label is None or not cluster_majority_label:
             raise ValueError(

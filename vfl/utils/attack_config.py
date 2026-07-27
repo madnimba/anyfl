@@ -38,6 +38,9 @@ class AttackSwapConfig:
     # unselected victims with their true, unswapped view. Answers the AC's request for
     # partial-coverage results.
     swap_coverage: float = 1.0
+    # ``random_noise`` strategy only: perturbation size in units of each feature's
+    # training standard deviation.
+    random_noise_sigma: float = 1.0
     # ``class_flip`` strategy only: stratified aux fraction used to estimate per-cluster
     # majority class. Aligns with the Phase-I aux budget (consistent threat model).
     class_flip_aux_frac: float = 0.05

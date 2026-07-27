@@ -458,6 +458,7 @@ def run_one_defense(
             core_q=float(cfg.swap.core_q),
             seed=int(cfg.seed),
             swap_coverage=float(cfg.swap.swap_coverage),
+            random_noise_sigma=float(cfg.swap.random_noise_sigma),
             exclude_victim_idx=adaptive_exclude_idx,
             use_signature_cache=bool(cfg.swap.use_signature_cache),
             cluster_majority_label=cluster_majority_label if strat == "class_flip" else None,
