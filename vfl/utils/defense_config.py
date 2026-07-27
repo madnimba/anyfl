@@ -178,6 +178,12 @@ class DefensePipelineConfig:
     # When true and dataset is UCI-HAR / Mushroom, merge ``_RGAR_TABULAR_DEFAULTS`` (and HAR
     # overlay) before ``defense.rgar:`` — mutually exclusive with vision presets by dataset.
     use_rgar_tabular_defaults: bool = True
+    # Adaptive attacker: an attacker who knows RGAR is deployed and knows which rows
+    # form the reference set R will simply not poison them, so R stays clean *and*
+    # uninformative about the attack. Excludes R from the victim set before donor
+    # assignment. False (default) = the non-adaptive attacker used in all submitted
+    # numbers. This is a strictly stronger threat model, not a different attack.
+    adaptive_exclude_reference: bool = False
 
     def __post_init__(self):
         if self.rgar is None:
@@ -205,6 +211,7 @@ def load_defense_experiment_bundle(path: str) -> DefenseExperimentBundle:
         rgar={str(k): v for k, v in (def_raw.get("rgar") or {}).items()},
         use_rgar_vision_defaults=bool(def_raw.get("use_rgar_vision_defaults", True)),
         use_rgar_tabular_defaults=bool(def_raw.get("use_rgar_tabular_defaults", True)),
+        adaptive_exclude_reference=bool(def_raw.get("adaptive_exclude_reference", False)),
     )
     return DefenseExperimentBundle(attack=atk, defense=dpl)
 

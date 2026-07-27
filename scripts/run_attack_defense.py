@@ -46,6 +46,7 @@ def _import_run_attack_shim() -> Any:
 
 _ra = _import_run_attack_shim()
 
+from server_rgar_defense import stratified_ref_indices
 from vfl.attack.embed_cache import attacker_embeddings_from_clean_model
 from vfl.attack.swap import STRATEGIES, apply_cluster_swap_to_part, load_cluster_artifacts
 from vfl.data.registry import DatasetRequest, load_dataset
@@ -422,6 +423,25 @@ def run_one_defense(
             },
         )
 
+    # ── Adaptive attacker: exclude the defender's reference rows from the victim set.
+    # R must be derived exactly as the RGAR trainers derive it -- same y, same
+    # ref_frac, same seed -- or the attacker would be dodging the wrong rows.
+    adaptive_exclude_idx = None
+    if bool(dpl.adaptive_exclude_reference):
+        adaptive_exclude_idx = stratified_ref_indices(
+            ds.y_train.view(-1).long().cpu(), float(rgar_cfg.ref_frac), int(cfg.seed)
+        )
+        print(
+            f"[DEFENSE][ADAPTIVE] attacker avoids {int(adaptive_exclude_idx.numel())} "
+            f"reference rows (r_ref={float(rgar_cfg.ref_frac):.3f}); R stays clean "
+            f"but carries no attack signal",
+            flush=True,
+        )
+    summary["adaptive_exclude_reference"] = bool(dpl.adaptive_exclude_reference)
+    summary["adaptive_n_excluded"] = (
+        0 if adaptive_exclude_idx is None else int(adaptive_exclude_idx.numel())
+    )
+
     pairs_for_paired = cluster_meta.get("pairs")
 
     for strat in strategies:
@@ -438,6 +458,7 @@ def run_one_defense(
             core_q=float(cfg.swap.core_q),
             seed=int(cfg.seed),
             swap_coverage=float(cfg.swap.swap_coverage),
+            exclude_victim_idx=adaptive_exclude_idx,
             use_signature_cache=bool(cfg.swap.use_signature_cache),
             cluster_majority_label=cluster_majority_label if strat == "class_flip" else None,
             aux_indices_by_class=aux_pool_by_class if strat == "class_flip" else None,
@@ -619,6 +640,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Optional subset of swap strategies (default: optimal_topk)",
     )
     p.add_argument(
+        "--adaptive-exclude-reference",
+        action="store_true",
+        help=(
+            "Adaptive attacker: poison only non-reference samples, so RGAR's clean "
+            "reference set is also uninformative about the attack. Default off."
+        ),
+    )
+    p.add_argument(
         "--r-ref",
         type=float,
         default=None,
@@ -664,6 +693,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = p.parse_args(argv)
 
     bundle = load_defense_experiment_bundle(args.config)
+    if args.adaptive_exclude_reference:
+        bundle = DefenseExperimentBundle(
+            attack=bundle.attack,
+            defense=dc_replace(bundle.defense, adaptive_exclude_reference=True),
+        )
     _rgar_over = {}
     if args.r_ref is not None:
         _rgar_over["ref_frac"] = float(args.r_ref)
