@@ -131,6 +131,7 @@ def run_job(
     threads: int,
     log_dir: str,
     epochs: Optional[int],
+    smoke: bool,
     attempt: int,
 ) -> int:
     env = dict(os.environ)
@@ -139,7 +140,11 @@ def run_job(
         env[var] = str(threads)
 
     argv = [python] + list(j["argv"]) + ["--results-jsonl", results_path]
-    if epochs is not None:
+    if smoke:
+        # --smoke, not --epochs 1: the defense runners also need their internal
+        # RGAR reconstructor budget collapsed or the check is not fast.
+        argv += ["--smoke"]
+    elif epochs is not None:
         argv += ["--epochs", str(epochs)]
 
     os.makedirs(log_dir, exist_ok=True)
@@ -244,12 +249,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             try:
                 rc = run_job(j, python=a.python, results_path=results_path, ledger=ledger,
                              gpu=a.gpu, threads=threads, log_dir=log_dir, epochs=epochs,
-                             attempt=1)
+                             smoke=a.smoke, attempt=1)
                 if rc != 0:
                     log(f"RETRY  {j['label']} (rc={rc})")
                     rc = run_job(j, python=a.python, results_path=results_path, ledger=ledger,
                                  gpu=a.gpu, threads=threads, log_dir=log_dir, epochs=epochs,
-                                 attempt=2)
+                                 smoke=a.smoke, attempt=2)
                 with state_lock:
                     if rc == 0:
                         state["ok"] += 1

@@ -809,7 +809,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--epochs",
         type=int,
         default=None,
-        help="Override train.epochs. Used by the smoke pass (--epochs 1); omit for real runs.",
+        help="Override train.epochs. Omit for real runs.",
+    )
+    p.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Fast validity check: 1 training epoch. Equivalent to --epochs 1 here.",
     )
     p.add_argument(
         "--swap-coverage",
@@ -866,8 +871,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     def _apply_overrides(cfg: AttackExperimentConfig) -> AttackExperimentConfig:
         if args.seed is not None:
             cfg = replace(cfg, train_seed=int(args.seed))
-        if args.epochs is not None:
-            cfg = replace(cfg, train=replace(cfg.train, epochs=int(args.epochs)))
+        _ep = 1 if args.smoke else args.epochs
+        if _ep is not None:
+            cfg = replace(cfg, train=replace(cfg.train, epochs=int(_ep)))
         if args.run_tag is not None:
             cfg = replace(cfg, run_name=str(args.run_tag))
         swap_kwargs = {}

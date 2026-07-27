@@ -278,6 +278,8 @@ def run_sota_comparison(
     run_tag: Optional[str] = None,
     results_path: Optional[str] = None,
     job_id: Optional[str] = None,
+    smoke: bool = False,
+    epochs: Optional[int] = None,
 ) -> str:
     d_key = _norm_ds(dataset)
 
@@ -308,7 +310,14 @@ def run_sota_comparison(
         cfg = _dc_replace(cfg, train_seed=int(seed))
     if run_tag is not None:
         cfg = _dc_replace(cfg, run_name=str(run_tag))
-    bundle = type(bundle)(attack=cfg, defense=bundle.defense)
+    _ep = 1 if smoke else epochs
+    if _ep is not None:
+        cfg = _dc_replace(cfg, train=_dc_replace(cfg.train, epochs=int(_ep)))
+    _dpl = bundle.defense
+    if smoke:
+        _dpl = _dc_replace(_dpl, rgar={**dict(_dpl.rgar),
+                                       "recon_epochs": 2, "ref_warmup_epochs": 1})
+    bundle = type(bundle)(attack=cfg, defense=_dpl)
     dpl = bundle.defense
 
     # Detect MNIST / FashionMNIST: use concentrated swap + CPU (same logic as run_attack.py).
@@ -808,6 +817,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--results-jsonl", type=str, default=None,
                    help="Append-only JSONL sink; 'auto' for results/runs_<host>.jsonl.")
     p.add_argument("--job-id", type=str, default=None, help="Manifest job id.")
+    p.add_argument("--smoke", action="store_true",
+                   help="Fast validity check: 1 training epoch and minimal RGAR budgets.")
+    p.add_argument("--epochs", type=int, default=None, help="Override train.epochs.")
     args = p.parse_args(argv)
 
     _results = args.results_jsonl
@@ -825,6 +837,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         run_tag=args.run_tag,
         results_path=_results,
         job_id=args.job_id,
+        smoke=bool(args.smoke),
+        epochs=args.epochs,
     )
     return 0
 

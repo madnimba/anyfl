@@ -97,15 +97,51 @@ generated tables and must stay marked in the paper.
 
 ---
 
-## 4. Two findings from the audit worth knowing
+## 4. Findings from the audit worth knowing
 
-**The 33.0 / 33.3 discrepancy has a mundane explanation.** Two MNIST runs exist
-with identical configs and identical `derangement`/`paired_clusters` numbers,
-but `optimal_topk` differs: 74.10% (`20260505T033437Z`) vs 33.03%
-(`20260505T040015Z`). The difference is the concentrated-swap path. 33.03
-rounds to both "33.0" and — if someone reread a different run — "33.3". Now that
-every number is generated from `results/*.jsonl`, this class of error cannot
-recur.
+### 4a. Verification gate result
+
+MNIST, Optimal Top-k, original config, on the modified code:
+
+| | submitted | post-fix gate |
+|---|---|---|
+| clean | 96.9 / 96.8 | **96.84** |
+| no defense | 33.0 / 33.3 | **33.27** |
+
+The plumbing is sound. Note that **33.27 rounds to 33.3 and 33.03 rounds to
+33.0** — the paper's two "inconsistent" MNIST numbers are within ordinary
+seed-to-seed variation of each other, not a transcription error. Same for
+96.84 → 96.8. The three-seed error bars will make this a non-issue.
+
+### 4b. A bigger inconsistency than the one reviewers found
+
+`run_attack.py` routes MNIST/Fashion-MNIST through the **concentrated** swap.
+`run_attack_defense.py` never did — it used the greedy-diverse variant. So the
+same quantity appears twice with a 41-point gap:
+
+| MNIST, CCVS, no defense | value | produced by |
+|---|---|---|
+| attack table | **33.0%** | `run_attack.py` (concentrated) |
+| defense table | **74.1%** | `run_attack_defense.py` (greedy) |
+
+Every archived MNIST defense run shows `naked=0.7410`. If a reviewer puts the
+two tables side by side, this is much harder to explain than 96.9 vs 96.8.
+
+I did **not** change the default — `--concentrated-swap` defaults to `off`, so
+your existing defense numbers reproduce exactly. Manifest group **C2** runs
+MNIST and Fashion-MNIST with it on, so you will have both numbers and can decide
+with data. Expect RGAR's MNIST recovery to look different against the stronger
+attack; that is the honest comparison, but it is your call.
+
+### 4c. UCI-BANK's headline strategy is `class_flip`, not Optimal Top-k
+
+The plan's group A/C table says "Optimal Topk" for all five datasets. For BANK
+that is the wrong strategy: its reported number is `class_flip` (49.03%, drop
+40.55pp) and `optimal_topk` is not in its top three. The RGAR BANK overlay in
+`vfl/utils/defense_config.py` is explicitly tuned for `class_flip`. Following
+the plan literally would have given you three-seed error bars for a number that
+is not in the paper. The manifest now uses the strategy each dataset actually
+reports, and evaluates both for BANK since it costs ~2.5 min per run.
 
 **MNIST, Fashion-MNIST, HAR and BANK train on CPU deliberately.** From
 `experiments/attack/configs/mnist.yaml`: on GPU the small server partly recovers

@@ -684,7 +684,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--epochs",
         type=int,
         default=None,
-        help="Override train.epochs. Used by the smoke pass (--epochs 1); omit for real runs.",
+        help="Override train.epochs. Omit for real runs.",
+    )
+    p.add_argument(
+        "--smoke",
+        action="store_true",
+        help=(
+            "Fast validity check: 1 training epoch AND minimal RGAR budgets. "
+            "--epochs alone is not enough here -- rgar recon_epochs (120-280) and "
+            "ref_warmup_epochs are separate knobs, so a defense job at --epochs 1 "
+            "still runs the full reconstructor and takes minutes."
+        ),
     )
     p.add_argument(
         "--adaptive-exclude-reference",
@@ -769,13 +779,24 @@ def main(argv: Optional[List[str]] = None) -> int:
             attack=dc_replace(bundle.attack, run_name=str(args.run_tag)),
             defense=bundle.defense,
         )
-    if args.epochs is not None:
+    _epochs = 1 if args.smoke else args.epochs
+    if _epochs is not None:
         bundle = DefenseExperimentBundle(
             attack=dc_replace(
                 bundle.attack,
-                train=dc_replace(bundle.attack.train, epochs=int(args.epochs)),
+                train=dc_replace(bundle.attack.train, epochs=int(_epochs)),
             ),
             defense=bundle.defense,
+        )
+    if args.smoke:
+        # Collapse the RGAR-internal budgets too, otherwise the "fast" check
+        # still trains a 120-280 epoch reconstructor.
+        bundle = DefenseExperimentBundle(
+            attack=bundle.attack,
+            defense=dc_replace(bundle.defense, rgar={
+                **dict(bundle.defense.rgar),
+                "recon_epochs": 2, "ref_warmup_epochs": 1,
+            }),
         )
     cfg_path = args.config
     results_path = args.results_jsonl
