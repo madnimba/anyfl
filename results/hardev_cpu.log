@@ -1,0 +1,3 @@
+[CLEAN] dataset=UCI-HAR k=2 acc=98.32%
+[ATK] strategy=optimal_topk       acc= 15.53% drop=82.78pp swap_rate=1.00 donor_flip=0.99
+[OK] Wrote run to: experiments/attack/runs/UCI-HAR/k2/HARDEV-cpu

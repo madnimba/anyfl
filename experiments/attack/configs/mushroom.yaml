@@ -9,6 +9,11 @@ train:
   batch_size: 512
   lr: 0.001
   weight_decay: 0.0
+  # Device is declared explicitly on every config in this repo. Implicit
+  # defaults resolve to whatever hardware happens to be visible, which is how
+  # the archived runs and the configs drifted apart. Value below = the device
+  # that produced this dataset's number in the submitted paper.
+  device: cpu
 swap:
   strategies:
     - optimal_topk

@@ -1,0 +1,7 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/mnist.yaml --strategy optimal_topk --seed 1 --concentrated-swap auto --run-tag C2-mnist-conc --job-id abdfca5a2a31e629 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14_smoke.jsonl --smoke =====
+[DEFENSE] dataset=MNIST k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=91.99%
+[DEFENSE] MNIST: concentrated swap ENABLED (matches scripts/run_attack.py; defense numbers will differ from previously reported values)
+[DEF] strat=optimal_topk       naked_acc=34.94% (drop_vs_clean=57.05pp) rgar_acc=19.98% (gap_vs_clean=72.01pp, -14.96pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/MNIST/k2/C2-mnist-conc

@@ -1,0 +1,6 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/fashionmnist.yaml --strategy optimal_topk --seed 3 --run-tag C-fashionmnist-s3 --job-id 1c754f98b94bacb8 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14_smoke.jsonl --smoke =====
+[DEFENSE] dataset=Fashion-MNIST k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=82.58%
+[DEF] strat=optimal_topk       naked_acc=60.94% (drop_vs_clean=21.64pp) rgar_acc=74.59% (gap_vs_clean= 7.99pp, +13.65pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/FASHIONMNIST/k2/C-fashionmnist-s3

@@ -1,0 +1,7 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/ucihar.yaml --strategy optimal_topk --seed 1 --adaptive-exclude-reference --run-tag G-ucihar-adaptive --job-id 2ff74290db7515b9 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14_smoke.jsonl --smoke =====
+[DEFENSE] dataset=UCI-HAR k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=73.79%
+[DEFENSE][ADAPTIVE] attacker avoids 1398 reference rows (r_ref=0.160); R stays clean but carries no attack signal
+[DEF] strat=optimal_topk       naked_acc=9.71% (drop_vs_clean=64.08pp) rgar_acc=15.86% (gap_vs_clean=57.93pp, +6.15pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/UCI-HAR/k2/G-ucihar-adaptive

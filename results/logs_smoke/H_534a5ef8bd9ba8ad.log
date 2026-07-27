@@ -1,0 +1,4 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/ucihar.yaml --strategy random_noise --seed 1 --run-tag H-ucihar-noise --job-id 534a5ef8bd9ba8ad --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14_smoke.jsonl --smoke =====
+[CLEAN] dataset=UCI-HAR k=2 acc=73.79%
+[OK] Wrote run to: experiments/attack/runs/UCI-HAR/k2/H-ucihar-noise

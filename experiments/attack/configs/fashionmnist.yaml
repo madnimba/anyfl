@@ -8,7 +8,7 @@ train:
   batch_size: 128
   lr: 0.001
   weight_decay: 0.0
-  device: cpu   # same reason as MNIST: CPU keeps small server confused by poisoning
+  device: cuda
 swap:
   strategies:
     - optimal_topk

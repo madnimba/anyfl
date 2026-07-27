@@ -1,0 +1,146 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/cifar10_bs512.yaml --strategy optimal_topk --seed 1 --run-tag B-cifar10-s1 --job-id 8cc63197d7d5a903 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14_smoke.jsonl --smoke =====
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/urllib/request.py", line 1348, in do_open
+    h.request(req.get_method(), req.selector, req.data, headers,
+  File "/usr/lib/python3.10/http/client.py", line 1303, in request
+    self._send_request(method, url, body, headers, encode_chunked)
+  File "/usr/lib/python3.10/http/client.py", line 1349, in _send_request
+    self.endheaders(body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.10/http/client.py", line 1298, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.10/http/client.py", line 1058, in _send_output
+    self.send(msg)
+  File "/usr/lib/python3.10/http/client.py", line 996, in send
+    self.connect()
+  File "/usr/lib/python3.10/http/client.py", line 1468, in connect
+    super().connect()
+  File "/usr/lib/python3.10/http/client.py", line 962, in connect
+    self.sock = self._create_connection(
+  File "/usr/lib/python3.10/socket.py", line 845, in create_connection
+    raise err
+  File "/usr/lib/python3.10/socket.py", line 833, in create_connection
+    sock.connect(sa)
+TimeoutError: [Errno 110] Connection timed out
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack.py", line 932, in <module>
+    raise SystemExit(main())
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack.py", line 905, in main
+    out_dir = run_one(
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack.py", line 373, in run_one
+    ds = load_dataset(DatasetRequest(name=cfg.dataset, data_cfg=cfg.data, nuswide_cfg=cfg.nuswide))
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/vfl/data/registry.py", line 33, in load_dataset
+    return load_cifar10(req.data_cfg)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/vfl/data/vision.py", line 71, in load_cifar10
+    return load_torchvision_classification("CIFAR10", datasets.CIFAR10, cfg, normalize=norm)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/vfl/data/vision.py", line 30, in load_torchvision_classification
+    train_ds = dataset_cls(cfg.data_dir, train=True, download=True, transform=tfm)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torchvision/datasets/cifar.py", line 66, in __init__
+    self.download()
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torchvision/datasets/cifar.py", line 139, in download
+    download_and_extract_archive(self.url, self.root, filename=self.filename, md5=self.tgz_md5)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torchvision/datasets/utils.py", line 391, in download_and_extract_archive
+    download_url(url, download_root, filename, md5)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torchvision/datasets/utils.py", line 121, in download_url
+    url = _get_redirect_url(url, max_hops=max_redirect_hops)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torchvision/datasets/utils.py", line 66, in _get_redirect_url
+    with urllib.request.urlopen(urllib.request.Request(url, headers=headers)) as response:
+  File "/usr/lib/python3.10/urllib/request.py", line 216, in urlopen
+    return opener.open(url, data, timeout)
+  File "/usr/lib/python3.10/urllib/request.py", line 525, in open
+    response = meth(req, response)
+  File "/usr/lib/python3.10/urllib/request.py", line 634, in http_response
+    response = self.parent.error(
+  File "/usr/lib/python3.10/urllib/request.py", line 557, in error
+    result = self._call_chain(*args)
+  File "/usr/lib/python3.10/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+  File "/usr/lib/python3.10/urllib/request.py", line 749, in http_error_302
+    return self.parent.open(new, timeout=req.timeout)
+  File "/usr/lib/python3.10/urllib/request.py", line 519, in open
+    response = self._open(req, data)
+  File "/usr/lib/python3.10/urllib/request.py", line 536, in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+  File "/usr/lib/python3.10/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+  File "/usr/lib/python3.10/urllib/request.py", line 1391, in https_open
+    return self.do_open(http.client.HTTPSConnection, req,
+  File "/usr/lib/python3.10/urllib/request.py", line 1351, in do_open
+    raise URLError(err)
+urllib.error.URLError: <urlopen error [Errno 110] Connection timed out>
+
+===== attempt 2 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/cifar10_bs512.yaml --strategy optimal_topk --seed 1 --run-tag B-cifar10-s1 --job-id 8cc63197d7d5a903 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14_smoke.jsonl --smoke =====
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/urllib/request.py", line 1348, in do_open
+    h.request(req.get_method(), req.selector, req.data, headers,
+  File "/usr/lib/python3.10/http/client.py", line 1303, in request
+    self._send_request(method, url, body, headers, encode_chunked)
+  File "/usr/lib/python3.10/http/client.py", line 1349, in _send_request
+    self.endheaders(body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.10/http/client.py", line 1298, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.10/http/client.py", line 1058, in _send_output
+    self.send(msg)
+  File "/usr/lib/python3.10/http/client.py", line 996, in send
+    self.connect()
+  File "/usr/lib/python3.10/http/client.py", line 1468, in connect
+    super().connect()
+  File "/usr/lib/python3.10/http/client.py", line 962, in connect
+    self.sock = self._create_connection(
+  File "/usr/lib/python3.10/socket.py", line 845, in create_connection
+    raise err
+  File "/usr/lib/python3.10/socket.py", line 833, in create_connection
+    sock.connect(sa)
+TimeoutError: [Errno 110] Connection timed out
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack.py", line 932, in <module>
+    raise SystemExit(main())
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack.py", line 905, in main
+    out_dir = run_one(
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack.py", line 373, in run_one
+    ds = load_dataset(DatasetRequest(name=cfg.dataset, data_cfg=cfg.data, nuswide_cfg=cfg.nuswide))
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/vfl/data/registry.py", line 33, in load_dataset
+    return load_cifar10(req.data_cfg)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/vfl/data/vision.py", line 71, in load_cifar10
+    return load_torchvision_classification("CIFAR10", datasets.CIFAR10, cfg, normalize=norm)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/vfl/data/vision.py", line 30, in load_torchvision_classification
+    train_ds = dataset_cls(cfg.data_dir, train=True, download=True, transform=tfm)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torchvision/datasets/cifar.py", line 66, in __init__
+    self.download()
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torchvision/datasets/cifar.py", line 139, in download
+    download_and_extract_archive(self.url, self.root, filename=self.filename, md5=self.tgz_md5)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torchvision/datasets/utils.py", line 391, in download_and_extract_archive
+    download_url(url, download_root, filename, md5)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torchvision/datasets/utils.py", line 121, in download_url
+    url = _get_redirect_url(url, max_hops=max_redirect_hops)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torchvision/datasets/utils.py", line 66, in _get_redirect_url
+    with urllib.request.urlopen(urllib.request.Request(url, headers=headers)) as response:
+  File "/usr/lib/python3.10/urllib/request.py", line 216, in urlopen
+    return opener.open(url, data, timeout)
+  File "/usr/lib/python3.10/urllib/request.py", line 525, in open
+    response = meth(req, response)
+  File "/usr/lib/python3.10/urllib/request.py", line 634, in http_response
+    response = self.parent.error(
+  File "/usr/lib/python3.10/urllib/request.py", line 557, in error
+    result = self._call_chain(*args)
+  File "/usr/lib/python3.10/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+  File "/usr/lib/python3.10/urllib/request.py", line 749, in http_error_302
+    return self.parent.open(new, timeout=req.timeout)
+  File "/usr/lib/python3.10/urllib/request.py", line 519, in open
+    response = self._open(req, data)
+  File "/usr/lib/python3.10/urllib/request.py", line 536, in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+  File "/usr/lib/python3.10/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+  File "/usr/lib/python3.10/urllib/request.py", line 1391, in https_open
+    return self.do_open(http.client.HTTPSConnection, req,
+  File "/usr/lib/python3.10/urllib/request.py", line 1351, in do_open
+    raise URLError(err)
+urllib.error.URLError: <urlopen error [Errno 110] Connection timed out>

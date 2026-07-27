@@ -31,6 +31,11 @@ train:
   weight_decay: 0.0
 
 # ── Attacker-favoring partition + asymmetric BANK model ─────────────────
+  # Device is declared explicitly on every config in this repo. Implicit
+  # defaults resolve to whatever hardware happens to be visible, which is how
+  # the archived runs and the configs drifted apart. Value below = the device
+  # that produced this dataset's number in the submitted paper.
+  device: cpu
 bank_attack_split: skewed_attacker
 bank_attack_share: 0.92
 bank_attack_model: asymmetric

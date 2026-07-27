@@ -364,6 +364,53 @@ def table_baselines(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
     return "\n".join(tex), "\n".join(txt)
 
 
+def table_runtime(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
+    """Measured wall-clock per condition -- the source for Appendix G.
+
+    The submitted Appendix G quotes 10-15 minutes per MNIST / Fashion-MNIST run
+    on a 5090. Measured here, MNIST trains 80 epochs in ~48 s on CPU. A
+    reproducer checking runtime is the cheapest possible falsification of the
+    paper, so this table is generated from wall_clock_s like every other number.
+    """
+    # Keyed by (dataset, device): a dataset that ran on both must not have its
+    # two devices averaged into one meaningless row.
+    cells: Dict[Tuple[str, str, str], List[float]] = defaultdict(list)
+    seen: List[Tuple[str, str]] = []
+    for r in rows:
+        t = r.get("wall_clock_s")
+        if t is None:
+            continue
+        d = str(((r.get("config") or {}).get("train") or {}).get("device") or "?")
+        cells[(r["dataset"], d, r["condition"])].append(float(t))
+        if (r["dataset"], d) not in seen:
+            seen.append((r["dataset"], d))
+    if not cells:
+        return "", "RUNTIME: no rows yet"
+    conds = ["clean", "attack", "naked", "rgar_full"]
+    tex = [
+        r"\begin{table}[t]\centering",
+        r"\caption{Measured wall-clock seconds per training run (80 epochs), by",
+        r"condition. RGAR includes reconstructor training, which dominates its cost and",
+        r"is independent of the epoch count. Measured, not estimated.}",
+        r"\label{tab:runtime}",
+        r"\begin{tabular}{ll" + "r" * len(conds) + r"}\toprule",
+        r"Dataset & Device & " + " & ".join(c.replace("_", r"\_") for c in conds) + r" \\ \midrule",
+    ]
+    txt = ["RUNTIME  (measured wall-clock seconds per run, 80 epochs)",
+           f"  {'dataset':<16}{'device':<7}" + "".join(f"{c[:10]:>12}" for c in conds)]
+    for ds, d in sorted(seen, key=lambda k: (DATASET_ORDER.index(k[0]) if k[0] in DATASET_ORDER else 99, k[1])):
+        if not any(cells.get((ds, d, c)) for c in conds):
+            continue
+        tex.append(f"{pretty(ds)} & {d} & " + " & ".join(
+            (f"{agg(cells[(ds,d,c)])[0]:.0f}" if cells.get((ds, d, c)) else "--") for c in conds) + r" \\")
+        txt.append(f"  {pretty(ds):<16}{d:<7}" + "".join(
+            (f"{agg(cells[(ds,d,c)])[0]:12.1f}" if cells.get((ds, d, c)) else f"{'--':>12}") for c in conds))
+    tex += [r"\bottomrule\end{tabular}\end{table}"]
+    total = sum(sum(v) for v in cells.values())
+    txt.append(f"  {'':<16}total measured compute: {total/3600:.2f} h")
+    return "\n".join(tex), "\n".join(txt)
+
+
 def provenance(rows: List[Dict[str, Any]]) -> str:
     commits = {(r.get("git") or {}).get("commit") for r in rows if (r.get("git") or {}).get("commit")}
     dirty = sum(1 for r in rows if (r.get("git") or {}).get("dirty"))
@@ -399,7 +446,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     builders = [table_attack, table_defense, table_strategies,
-                table_coverage, table_reference, table_baselines]
+                table_coverage, table_reference, table_baselines, table_runtime]
     tex_parts, txt_parts = [], []
     for b in builders:
         t, x = b(rows)

@@ -25,6 +25,11 @@ train:
   lr: 0.001
   weight_decay: 0.0
 
+  # Device is declared explicitly on every config in this repo. Implicit
+  # defaults resolve to whatever hardware happens to be visible, which is how
+  # the archived runs and the configs drifted apart. Value below = the device
+  # that produced this dataset's number in the submitted paper.
+  device: cpu
 har_attack_split: mi_ranked
 har_attack_share: 0.88
 har_attack_model: asymmetric

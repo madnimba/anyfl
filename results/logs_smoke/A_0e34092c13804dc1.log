@@ -1,0 +1,6 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/mushroom.yaml --strategy optimal_topk --seed 3 --run-tag A-mushroom-s3 --job-id 0e34092c13804dc1 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14_smoke.jsonl --smoke =====
+[CLEAN] dataset=UCI-MUSHROOM k=2 acc=95.49%
+[PROBE] dataset=UCI-MUSHROOM k=2 chose attacker_client_idx=0 (drop=0.0353)
+[ATK] strategy=optimal_topk       acc= 31.67% drop=63.82pp swap_rate=1.00 donor_flip=0.94
+[OK] Wrote run to: experiments/attack/runs/UCI-MUSHROOM/k2/A-mushroom-s3

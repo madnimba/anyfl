@@ -806,6 +806,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         ),
     )
     p.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        help=(
+            "Override train.device (cpu|cuda). For verification only -- every config "
+            "declares its device explicitly; do not use this to run the real queue."
+        ),
+    )
+    p.add_argument(
         "--epochs",
         type=int,
         default=None,
@@ -871,6 +880,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     def _apply_overrides(cfg: AttackExperimentConfig) -> AttackExperimentConfig:
         if args.seed is not None:
             cfg = replace(cfg, train_seed=int(args.seed))
+        if args.device is not None:
+            cfg = replace(cfg, train=replace(cfg.train, device=str(args.device)))
         _ep = 1 if args.smoke else args.epochs
         if _ep is not None:
             cfg = replace(cfg, train=replace(cfg.train, epochs=int(_ep)))

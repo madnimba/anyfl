@@ -207,6 +207,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     ledger = ledger_path(_REPO_ROOT).replace(".jsonl", f"{suffix}.jsonl")
     log_dir = os.path.join(_REPO_ROOT, "results", f"logs{suffix}")
 
+    # Configs now declare device explicitly, so a cuda job launched without a GPU
+    # fails hard ("No CUDA GPUs are available") rather than silently falling back.
+    # Catch it here with an actionable message instead of N identical tracebacks.
+    need_cuda = [j for j in jobs if str(j.get("device", "auto")) == "cuda"]
+    if need_cuda and a.gpu is None:
+        raise SystemExit(
+            f"{len(need_cuda)} job(s) declare device: cuda but no --gpu was given, e.g. "
+            f"{need_cuda[0]['label']}.\n"
+            "Pass --gpu 0 (or edit the config if this machine has no GPU)."
+        )
+
     done = set() if a.rerun_failed else load_completed([ledger])
     pending = [j for j in jobs if j["job_id"] not in done]
 

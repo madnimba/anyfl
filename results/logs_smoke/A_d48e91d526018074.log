@@ -1,0 +1,7 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/bank.yaml --strategy class_flip optimal_topk --seed 1 --run-tag A-bank-s1 --job-id d48e91d526018074 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14_smoke.jsonl --smoke =====
+[CLEAN] dataset=UCI-BANK k=2 acc=88.30%
+[PROBE] dataset=UCI-BANK k=2 chose attacker_client_idx=0 (drop=0.0000)
+[ATK] strategy=class_flip         acc= 88.30% drop= 0.00pp swap_rate=1.00 donor_flip=0.90
+[ATK] strategy=optimal_topk       acc= 88.30% drop= 0.00pp swap_rate=1.00 donor_flip=0.26
+[OK] Wrote run to: experiments/attack/runs/UCI-BANK/k2/A-bank-s1
