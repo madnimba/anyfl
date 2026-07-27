@@ -1,0 +1,51 @@
+# UCI-HAR Phase II — partition must match Phase I (MI-ranked client-0 view).
+#
+# Historical bug: clustering used MI-ranked features on client 0 while the
+# attack runner used even sequential ``partition_tabular_features``, so cluster
+# ids did not align with the attacker tensor. Defaults now use
+# ``har_attack_split: mi_ranked`` (see ``vfl/partition/har_mi.py``).
+#
+# Strong attack mode (BANK-style): optional ``har_attack_share`` skews most
+# MI-ranked columns to the attacker; ``har_attack_model: asymmetric`` uses a
+# wide bottom on the attacker and a weak linear passive. ``class_flip`` uses
+# the same aux budget as Phase I for per-row class prediction + opposite-class
+# donors (multiclass-safe).
+#
+dataset: UCI-HAR
+k_clients: 2
+# Must match ``experiments/clustering/configs/ucihar.yaml`` ``seed`` so MI-ranked
+# columns (and aux subset for MI) match Phase I; see ``HAR_mi_rank_order.npy`` check in run_attack.
+seed: 42
+data:
+  data_dir: ./data
+  tabular_train_fraction: 0.85
+train:
+  epochs: 80
+  batch_size: 256
+  lr: 0.001
+  weight_decay: 0.0
+
+har_attack_split: mi_ranked
+har_attack_share: 0.88
+har_attack_model: asymmetric
+har_aux_labeled_frac: 0.03
+
+swap:
+  ignore_cluster_conf: true
+  strategies:
+    - class_flip
+    - optimal_topk
+    - derangement
+    - paired_clusters
+    - round_robin
+    - random_clusters
+    - random_per_sample
+  attacker_client_idx: 0
+  # Asymmetric model + skewed MI partition target client 0; keep probe off to avoid mismatch.
+  attacker_probe: false
+  topk: 6
+  core_q: 0.45
+  cluster_dir: ./clusters
+  protect_test: true
+  use_signature_cache: false
+  class_flip_aux_frac: 0.05

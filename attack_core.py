@@ -1842,6 +1842,7 @@ def train_once_rgar(
         cfg.recon_lr,
         weight_decay=cfg.recon_weight_decay,
         batch_size=cfg.recon_batch_size,
+        recon_cosine_weight=float(cfg.recon_cosine_weight),
     )
     engine.freeze_reconstructor()
 

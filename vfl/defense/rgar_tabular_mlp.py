@@ -1,0 +1,303 @@
+"""RGAR for K=2 tabular VFL.
+
+Supports all tabular K-party models:
+  * ``KPartyTabularMLP`` — UCI-Mushroom, generic tabular
+  * ``KPartyHarTabularAsymmetricMLP`` — UCI-HAR (wide attacker / tiny passive)
+  * ``KPartyBankAsymmetricMLP`` — UCI-BANK asymmetric (96-D attacker / 2-D passive)
+  * ``KPartyBankCompactMLP`` — UCI-BANK compact
+
+Same threat model and stages as :mod:`vfl.defense.rgar_flat_vfl`: stratified clean
+reference rows on the attacker slice, reference trust + honest-view reconstructor,
+then online suspicion with optional soft recon fusion at the server.
+
+For highly asymmetric models (UCI-HAR, UCI-BANK: ``dim(h_B) << dim(h_A)``), use
+``soft_recon_h_hat_mode="proto_a"`` in ``RGARConfig`` so suspicious rows blend toward
+class prototypes ``p_A[y]`` instead of the ill-posed MLP ``g(h_B, y) -> h_A``.
+Enable ``refit_ref_every_epoch=True`` to keep prototypes aligned with the evolving
+encoder, and ``freeze_attacker_on_attribution=True`` to stop the poisoned encoder
+from continuing to train through the residual ``(1-w)*h_A`` gradient.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, Tuple, Union
+
+import torch
+import torch.nn as nn
+
+from server_rgar_defense import (
+    RGARConfig,
+    RGAREngine,
+    protect_reference_in_swapped,
+    stratified_ref_indices,
+    train_reconstructor,
+)
+from vfl.models.bank_paper_mlp import KPartyBankAsymmetricMLP, KPartyBankCompactMLP
+from vfl.models.tabular_mlp_vfl import KPartyHarTabularAsymmetricMLP, KPartyTabularMLP
+from vfl.train.loop import TrainConfig
+from vfl.train.metrics import compute_metrics
+
+RgarTabularPartyModel = Union[
+    KPartyTabularMLP,
+    KPartyHarTabularAsymmetricMLP,
+    KPartyBankAsymmetricMLP,
+    KPartyBankCompactMLP,
+]
+
+_ALLOWED_TABULAR_TYPES = (
+    KPartyTabularMLP,
+    KPartyHarTabularAsymmetricMLP,
+    KPartyBankAsymmetricMLP,
+    KPartyBankCompactMLP,
+)
+
+
+class _ServerConcat(nn.Module):
+    """Expose tabular ``server`` as ``forward(ha, hb)`` (concat party embeddings)."""
+
+    def __init__(self, server: nn.Module):
+        super().__init__()
+        self.server = server
+
+    def forward(self, ha: torch.Tensor, hb: torch.Tensor) -> torch.Tensor:
+        return self.server(torch.cat([ha, hb], dim=1))
+
+
+@torch.no_grad()
+def _eval_tabular_kparty(
+    model: RgarTabularPartyModel,
+    X_parts_test: Tuple[torch.Tensor, ...],
+    y_test: torch.Tensor,
+    *,
+    device: torch.device,
+    batch_size: int,
+    task: str,
+) -> Dict[str, float]:
+    model.eval()
+    all_logits = []
+    all_y = []
+    n = int(y_test.shape[0])
+    for s in range(0, n, int(batch_size)):
+        e = min(n, s + int(batch_size))
+        xb = [p[s:e].to(device) for p in X_parts_test]
+        yb = y_test[s:e].to(device)
+        logits = model(*xb)
+        all_logits.append(logits.detach().cpu())
+        all_y.append(yb.detach().cpu())
+    logits = torch.cat(all_logits, dim=0)
+    y_true = torch.cat(all_y, dim=0)
+    return compute_metrics(task, logits, y_true)
+
+
+def train_rgar_tabular_mlp(
+    model: RgarTabularPartyModel,
+    *,
+    X_parts_clean: Tuple[torch.Tensor, ...],
+    X_parts_poison: Tuple[torch.Tensor, ...],
+    y_train: torch.Tensor,
+    X_parts_test: Tuple[torch.Tensor, ...],
+    y_test: torch.Tensor,
+    attacker_idx: int,
+    train_cfg: TrainConfig,
+    rgar_cfg: RGARConfig,
+    task: str = "multiclass",
+    downweight_only: bool = False,
+    seed: int = 0,
+) -> Tuple[Dict[str, float], Dict[str, Any], Dict[str, Any]]:
+    """RGAR mitigation on poisoned attacker tabular data (K=2 only).
+
+    Returns ``(test_metrics, train_stats, rgar_meta)``.
+    """
+    if len(X_parts_clean) != 2 or len(X_parts_poison) != 2:
+        raise ValueError("train_rgar_tabular_mlp supports k_clients=2 only")
+    if attacker_idx not in (0, 1):
+        raise ValueError("attacker_idx must be 0 or 1")
+    if not isinstance(model, _ALLOWED_TABULAR_TYPES):
+        raise TypeError(
+            f"model type {type(model).__name__} is not supported by train_rgar_tabular_mlp. "
+            "Supported: KPartyTabularMLP, KPartyHarTabularAsymmetricMLP, "
+            "KPartyBankAsymmetricMLP, KPartyBankCompactMLP."
+        )
+
+    dev = torch.device(str(train_cfg.device))
+    model = model.to(dev)
+    client_a = model.clients[int(attacker_idx)]
+    client_b = model.clients[1 - int(attacker_idx)]
+    server_cat = _ServerConcat(model.server).to(dev)
+
+    XA_c = X_parts_clean[int(attacker_idx)]
+    XA_s = X_parts_poison[int(attacker_idx)]
+    XB = X_parts_clean[1 - int(attacker_idx)]
+
+    y_tr = y_train.view(-1).long()
+    n = int(y_tr.shape[0])
+    bs = int(train_cfg.batch_size)
+
+    ref_idx = stratified_ref_indices(y_tr.cpu(), float(rgar_cfg.ref_frac), int(seed))
+    XA_use = protect_reference_in_swapped(XA_c, XA_s, ref_idx)
+
+    if train_cfg.optimizer == "adamw":
+        opt = torch.optim.AdamW(
+            model.parameters(), lr=float(train_cfg.lr), weight_decay=float(train_cfg.weight_decay)
+        )
+    else:
+        opt = torch.optim.Adam(
+            model.parameters(), lr=float(train_cfg.lr), weight_decay=float(train_cfg.weight_decay)
+        )
+
+    if task == "multiclass":
+        loss_fn = nn.CrossEntropyLoss()
+    else:
+        loss_fn = nn.BCEWithLogitsLoss()
+
+    model.train()
+    for _ in range(int(rgar_cfg.ref_warmup_epochs)):
+        perm = ref_idx[torch.randperm(len(ref_idx))]
+        for s in range(0, len(perm), bs):
+            e = min(len(perm), s + bs)
+            b = perm[s:e].long()
+            xa = XA_c[b].to(dev)
+            xb = XB[b].to(dev)
+            y = y_tr[b].to(dev)
+            opt.zero_grad(set_to_none=True)
+            za = client_a(xa)
+            zb = client_b(xb)
+            logits = server_cat(za, zb)
+            loss = loss_fn(logits, y)
+            loss.backward()
+            opt.step()
+
+    model.eval()
+    ha_chunks, hb_chunks, yr_chunks = [], [], []
+    with torch.no_grad():
+        for s in range(0, len(ref_idx), bs):
+            e = min(len(ref_idx), s + bs)
+            b = ref_idx[s:e].long()
+            xa = XA_c[b].to(dev)
+            xb = XB[b].to(dev)
+            ha_chunks.append(client_a(xa))
+            hb_chunks.append(client_b(xb))
+            yr_chunks.append(y_tr[b].to(dev))
+    ha_ref = torch.cat(ha_chunks, dim=0)
+    hb_ref = torch.cat(hb_chunks, dim=0)
+    y_ref = torch.cat(yr_chunks, dim=0)
+    h_a_dim = int(ha_ref.shape[1])
+    h_b_dim = int(hb_ref.shape[1])
+    num_classes = int(y_tr.max().item()) + 1
+
+    engine = RGAREngine(rgar_cfg, h_a_dim, h_b_dim, num_classes, n).to(dev)
+    engine.ref_model.fit_from_tensors(ha_ref, hb_ref, y_ref)
+
+    train_reconstructor(
+        engine.reconstructor,
+        client_a,
+        client_b,
+        XA_c.cpu(),
+        XB.cpu(),
+        y_tr.cpu(),
+        ref_idx.cpu(),
+        str(dev),
+        int(rgar_cfg.recon_epochs),
+        float(rgar_cfg.recon_lr),
+        weight_decay=float(rgar_cfg.recon_weight_decay),
+        batch_size=int(rgar_cfg.recon_batch_size),
+        recon_cosine_weight=float(rgar_cfg.recon_cosine_weight),
+    )
+    engine.freeze_reconstructor()
+
+    model.train()
+    usable = n - (n % bs)
+    stats: Dict[str, Any] = {
+        "accepted": 0,
+        "flagged": 0,
+        "total": 0,
+        "suspicious_samples": 0,
+        "seen_samples": 0,
+    }
+    _attacker_frozen = False
+
+    for _epoch in range(int(train_cfg.epochs)):
+        # --- optional: re-fit ref prototypes from current encoder state ---
+        # Critical for proto_a mode: prototypes must stay in the current embedding space.
+        # Adds one cheap forward pass over ref_idx each epoch; safe to disable on non-HAR runs
+        # via refit_ref_every_epoch=False (the default).
+        if rgar_cfg.refit_ref_every_epoch:
+            model.eval()
+            _ha_ch, _hb_ch, _yr_ch = [], [], []
+            with torch.no_grad():
+                for _s in range(0, len(ref_idx), bs):
+                    _e = min(len(ref_idx), _s + bs)
+                    _b = ref_idx[_s:_e].long()
+                    _ha_ch.append(client_a(XA_c[_b].to(dev)))
+                    _hb_ch.append(client_b(XB[_b].to(dev)))
+                    _yr_ch.append(y_tr[_b].to(dev))
+            engine.ref_model.fit_from_tensors(
+                torch.cat(_ha_ch, 0), torch.cat(_hb_ch, 0), torch.cat(_yr_ch, 0)
+            )
+            model.train()
+            if _attacker_frozen:
+                client_a.eval()
+
+        perm = torch.randperm(n)
+        for s in range(0, usable, bs):
+            e = s + bs
+            gix = perm[s:e]
+            xa = XA_use[gix].to(dev)
+            xb = XB[gix].to(dev)
+            y = y_tr[gix].to(dev)
+            ha = client_a(xa)
+            hb = client_b(xb)
+            with torch.no_grad():
+                s_pair, e_a, e_b = engine.score_batch(ha.detach(), hb.detach(), y, gix.to(dev))
+                engine.accumulate_attribution(s_pair, e_a, e_b)
+                stats["suspicious_samples"] += int((s_pair > rgar_cfg.tau_pair).sum().item())
+                stats["seen_samples"] += int(y.numel())
+            sp_for_fuse = None if downweight_only else s_pair
+            ha_in, hb_in = engine.prepare_server_input(
+                ha,
+                hb,
+                y,
+                gix.to(dev),
+                training=True,
+                device=dev,
+                downweight_only=downweight_only,
+                s_pair=sp_for_fuse,
+            )
+            logits = server_cat(ha_in, hb_in)
+            opt.zero_grad(set_to_none=True)
+            loss = loss_fn(logits, y)
+            loss.backward()
+            opt.step()
+            with torch.no_grad():
+                engine.update_ema(ha.detach(), hb.detach(), gix.to(dev))
+            stats["accepted"] += 1
+            stats["total"] += 1
+        engine.end_epoch()
+
+        # --- optional: freeze attacker encoder on first attribution ---
+        # Once Party A is globally attributed as malicious, stop its encoder from learning
+        # on poisoned inputs (gradient was flowing through the (1-w)*h_A residual term).
+        # Only passive encoder + server continue to update. Default False → no change for
+        # MNIST / FashionMNIST / CIFAR / Mushroom.
+        if (
+            rgar_cfg.freeze_attacker_on_attribution
+            and engine.attributed_malicious_a
+            and not _attacker_frozen
+        ):
+            for p in client_a.parameters():
+                p.requires_grad_(False)
+            client_a.eval()
+            _attacker_frozen = True
+
+    meta = engine.export_state_dict_meta()
+    meta["ref_frac"] = float(rgar_cfg.ref_frac)
+    meta["ref_n"] = int(ref_idx.numel())
+    meta["downweight_only"] = bool(downweight_only)
+    meta["attacker_frozen"] = bool(_attacker_frozen)
+    ss = max(1, int(stats["seen_samples"]))
+    meta["attack_detect_rate_pct"] = 100.0 * float(stats["suspicious_samples"]) / float(ss)
+
+    metrics = _eval_tabular_kparty(
+        model, X_parts_test, y_test, device=dev, batch_size=bs, task=task
+    )
+    return metrics, stats, meta

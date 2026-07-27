@@ -7,7 +7,7 @@ data:
   test_samples: null
   tabular_train_fraction: 0.85
 train:
-  epochs: 20
+  epochs: 80
   batch_size: 128
   lr: 0.001
   weight_decay: 0.0

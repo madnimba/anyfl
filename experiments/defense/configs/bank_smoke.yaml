@@ -1,0 +1,41 @@
+# Smoke test — CPU, 3 training epochs, 10 recon epochs, class_flip only.
+# Run: .venv/bin/python scripts/run_attack_defense.py \
+#          --config experiments/defense/configs/bank_smoke.yaml --strategy class_flip
+dataset: UCI-BANK
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+  tabular_train_fraction: 0.85
+train:
+  epochs: 3
+  batch_size: 512
+  lr: 0.001
+  weight_decay: 0.0
+  device: cpu
+  optimizer: adam
+bank_attack_split: skewed_attacker
+bank_attack_share: 0.92
+bank_attack_model: asymmetric
+stealth_oracle_labels: true
+swap:
+  strategies:
+    - class_flip
+  attacker_client_idx: 0
+  attacker_probe: false
+  topk: 8
+  core_q: 0.35
+  cluster_dir: ./clusters
+  protect_test: true
+  use_signature_cache: false
+  ignore_cluster_conf: true
+  class_flip_aux_frac: 0.05
+defense:
+  run_naked_poisoned: true
+  rgar_full: true
+  rgar_downweight: false
+  use_rgar_tabular_defaults: true
+  rgar:
+    recon_epochs: 10
+    ref_frac: 0.08
+    ref_warmup_epochs: 2

@@ -1,0 +1,34 @@
+# UCI-BANK — Phase I clusters optimized for end-to-end **cluster-swap attack**.
+#
+# Threat model: attacker = client-0 with a *richer* MI-ranked slice of features
+# (bank_attack_split: skewed_attacker). On those features we run K=16 label-free
+# Gaussian/KMeans clusters and export them to ./clusters/. The attack runner
+# reads the SAME partition (matching bank_attack_split / bank_attack_share /
+# bank_attack_attacker_idx) so cluster ids align with the poisoned attacker view.
+#
+# Re-run:
+#   python3 scripts/run_clustering.py --config experiments/clustering/configs/bank_attack_k16.yaml
+#   python3 scripts/run_attack.py     --config experiments/attack/configs/bank.yaml
+#
+dataset: UCI-BANK
+k_clients: 2
+seed: 42
+aux_labeled_frac: 0.03
+
+# ── Attack-oriented partition (BANK only): give attacker the informative slice.
+bank_attack_split: skewed_attacker
+bank_attack_share: 0.92
+bank_attack_attacker_idx: 0
+
+# ── Clustering on attacker view: K=16 label-free MiniBatchKMeans on PCA features.
+bank_attack_clusters: 16
+bank_attack_method: kmeans
+
+out_base: experiments/clustering/runs
+export_cluster_dir: ./clusters
+clustering:
+  batch_size: 256
+  gmm_covariance: diag
+  device: cpu
+data:
+  data_dir: ./data

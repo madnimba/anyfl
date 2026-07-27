@@ -3,8 +3,17 @@ MNIST
 cifar-10-python.tar.gz
 __pycache__
 cifar-10-batches-py
-clusters
 FashionMNIST
-data
-docs
-experiments/clustering/*
+
+# Phase-I intermediates: large (~30 MB), regenerable, and not read by the
+# attack/defense runners. The small ids/conf/pairs/topk artifacts they DO read
+# stay tracked so a fresh clone can run Phase II without re-running Phase I.
+clusters/*_embeddings.npy
+clusters/*_encoder.pth
+
+# Per-run output artifacts (~150 MB, regenerable). The aggregated results that
+# feed the paper tables live in results/*.jsonl, which is deliberately tracked.
+experiments/attack/runs/
+experiments/clustering/runs/
+experiments/defense/runs/
+experiments/defense/sota_comparison/runs/

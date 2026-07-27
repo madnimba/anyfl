@@ -48,6 +48,7 @@ from vfl.utils.attack_config import (
     dump_attack_config_yaml,
     load_attack_config,
 )
+from vfl.utils.har_partition_check import verify_har_mi_rank_order_matches_artifacts
 from vfl.utils.repro import (
     get_env_info,
     get_git_info,
@@ -65,6 +66,16 @@ from vfl.utils.repro import (
 def _is_cuda_oom(err: BaseException) -> bool:
     msg = str(err).lower()
     return "cuda out of memory" in msg or ("cublas" in msg and "alloc" in msg)
+
+
+# Datasets that use KPartyLegacyFlattenVFL (pixel flatten + small MLP server).
+# For these: concentrated swap (pure argmin, no greedy cycling) is used instead of
+# greedy-diverse, and device is forced to CPU. See swap.py _strategy_optimal_topk_simple.
+_FLAT_VFL_DATASETS = {"MNIST", "FASHIONMNIST", "FASHION-MNIST"}
+
+
+def _is_flat_vfl_dataset(name: str) -> bool:
+    return name.strip().upper().replace("-", "") in {d.replace("-", "") for d in _FLAT_VFL_DATASETS}
 
 
 def _prefix_for_clusters(dataset_name: str) -> str:
@@ -348,6 +359,16 @@ def run_one(cfg: AttackExperimentConfig, *, repo_root: str, out_base: str) -> st
     set_global_seed(cfg.seed)
     ds = load_dataset(DatasetRequest(name=cfg.dataset, data_cfg=cfg.data, nuswide_cfg=cfg.nuswide))
 
+    # MNIST / FashionMNIST: dedicated swap path (concentrated argmin, no greedy cycling).
+    # The greedy-diverse variant (default) was tuned for HAR/BANK tabular datasets; for
+    # pixel-space flatten-VFL it produces too many unique donors, weakening the attack.
+    _flat_vfl = _is_flat_vfl_dataset(ds.name)
+    if _flat_vfl:
+        print(
+            f"[ATTACK] {ds.name}: flat-VFL path — using concentrated swap + device=cpu",
+            flush=True,
+        )
+
     X_parts_train, X_parts_test, part_meta = partition_for_dataset(
         dataset_name=ds.name,
         X_train=ds.X_train,
@@ -366,33 +387,13 @@ def run_one(cfg: AttackExperimentConfig, *, repo_root: str, out_base: str) -> st
     )
 
     prefix = _prefix_for_clusters(ds.name)
-    # HAR: Phase I FixMatch cluster ids are tied to client-0 **columns**. MI ranking
-    # depends on (seed, aux_labeled_frac, har_attack_share). Mismatch vs ./clusters/
-    # ``HAR_mi_rank_order.npy`` invalidates apples-to-apples claims.
-    if prefix == "HAR" and isinstance(part_meta, dict):
-        hmode = (cfg.har_attack_split or "mi_ranked").strip().lower()
-        ro = part_meta.get("ranked_feature_order")
-        disk_ro = os.path.join(cfg.swap.cluster_dir, f"{prefix}_mi_rank_order.npy")
-        disk_seed = os.path.join(cfg.swap.cluster_dir, f"{prefix}_mi_partition_seed.txt")
-        if hmode != "even" and ro is not None and os.path.isfile(disk_ro):
-            on_disk = np.load(disk_ro).astype(np.int64)
-            attack_ro = np.asarray(ro, dtype=np.int64)
-            if attack_ro.shape != on_disk.shape or not np.array_equal(attack_ro, on_disk):
-                raise ValueError(
-                    f"HAR MI column order mismatch: attack run seed={cfg.seed} "
-                    f"produces a different ``ranked_feature_order`` than "
-                    f"{disk_ro}. Re-run ``scripts/run_clustering.py`` with the same "
-                    f"``seed``, ``aux_labeled_frac``, and ``har_attack_share`` as this "
-                    f"attack config, then copy artifacts to {cfg.swap.cluster_dir!r}. "
-                    f"(Expected Phase-I seed from {disk_seed}: "
-                    f"{open(disk_seed).read().strip() if os.path.isfile(disk_seed) else 'n/a'}.)"
-                )
-        elif hmode != "even" and ro is not None and not os.path.isfile(disk_ro):
-            print(
-                f"[WARN] HAR: missing {disk_ro} — cannot verify MI partition vs Phase I. "
-                f"Re-run clustering with export_cluster_dir to emit order artifact.",
-                flush=True,
-            )
+    if prefix == "HAR":
+        verify_har_mi_rank_order_matches_artifacts(
+            cluster_dir=str(cfg.swap.cluster_dir),
+            part_meta=part_meta,
+            har_attack_split=cfg.har_attack_split,
+            experiment_seed=int(cfg.seed),
+        )
     ids, conf, cluster_meta = load_cluster_artifacts(prefix, cluster_dir=cfg.swap.cluster_dir)
     conf_for_swap = None if bool(cfg.swap.ignore_cluster_conf) else conf
     if int(ids.shape[0]) != int(ds.X_train.shape[0]):
@@ -595,6 +596,7 @@ def run_one(cfg: AttackExperimentConfig, *, repo_root: str, out_base: str) -> st
                 aux_indices_by_class=aux_pool_by_class if strat == "class_flip" else None,
                 victim_pred_class=victim_pred_class if strat == "class_flip" else None,
                 swap_geometry_vecs=swap_geometry_vecs,
+                use_concentrated_topk=_flat_vfl,
             )
         except Exception as exc:
             err_dir = os.path.join(paths.root, str(strat))

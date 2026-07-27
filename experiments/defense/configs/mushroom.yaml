@@ -1,0 +1,39 @@
+# UCI-Mushroom: cluster-swap + RGAR (symmetric KPartyTabularMLP, even feature split).
+# Phase I: ./clusters/MUSHROOM_ids.npy
+# Mirrors ``experiments/attack/configs/mushroom.yaml``.
+#
+# Runner: .venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/mushroom.yaml
+dataset: UCI-MUSHROOM
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+  tabular_train_fraction: 0.85
+train:
+  epochs: 80
+  batch_size: 512
+  lr: 0.001
+  weight_decay: 0.0
+swap:
+  strategies:
+    - optimal_topk
+    - derangement
+    - paired_clusters
+    - round_robin
+    - random_clusters
+    - random_per_sample
+  attacker_client_idx: 0
+  attacker_probe: true
+  topk: 3
+  core_q: 0.52
+  cluster_dir: ./clusters
+  protect_test: true
+  use_signature_cache: false
+
+defense:
+  run_naked_poisoned: true
+  rgar_full: true
+  rgar_downweight: false
+  rgar:
+    recon_epochs: 280
+    ref_frac: 0.12

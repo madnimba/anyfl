@@ -461,6 +461,90 @@ def _strategy_optimal_topk(
 
 
 @torch.no_grad()
+def _strategy_optimal_topk_simple(
+    X: torch.Tensor,
+    ids: torch.Tensor,
+    conf: Optional[torch.Tensor],
+    *,
+    topk: int,
+    core_q: float,
+    seed: int,
+    cache_path: Optional[str],
+    V_override: Optional[torch.Tensor] = None,
+    chunk: int = 1024,
+) -> SwapResult:
+    """Concentrated optimal_topk: pure per-victim argmin cosine, no cycling.
+
+    Identical to ``_strategy_optimal_topk`` in top-k targeting and donor pool
+    selection, but each victim *independently* picks its globally most-opposite
+    donor (argmin cosine across the full union pool) without the greedy-cycling
+    diversity mechanism. This naturally produces a small number of unique donors —
+    many victims share the same extreme "most opposite" embedding in pixel space
+    — which creates concentrated, repeated poisoning that confuses the small
+    ``KPartyLegacyFlattenVFL`` server much more than diverse donor assignments.
+
+    **MNIST / FashionMNIST dedicated pipeline only.** Not registered in STRATEGIES.
+    """
+    V = _geometry_vecs(X, V_override)
+    N = int(X.shape[0])
+    dev = X.device
+    donor_idx = torch.arange(N, dtype=torch.long, device=dev)
+
+    uniq = sorted({int(g) for g in ids.tolist()})
+    cl2idx = {g: (ids == g).nonzero(as_tuple=True)[0] for g in uniq}
+    pool = _donor_pool(cl2idx, conf, core_q=core_q)
+    topk_map = _topk_targets(X, ids, k=topk, cache_path=cache_path, V_override=V_override)
+
+    for s in uniq:
+        victims = cl2idx[s]
+        if len(victims) == 0:
+            continue
+        targets = topk_map.get(int(s), [])
+        if not targets:
+            others = [g for g in uniq if g != s]
+            targets = [others[0]] if others else []
+        if not targets:
+            continue
+        donor_blocks = [
+            pool.get(int(t), torch.empty(0, dtype=torch.long, device=dev))
+            for t in targets
+        ]
+        donor_blocks = [b for b in donor_blocks if len(b) > 0]
+        if not donor_blocks:
+            continue
+        U = torch.cat(donor_blocks, dim=0)   # global indices into X
+        Vd = V[U]                             # [|U|, D]
+
+        # Pure argmin per victim — no used-mask, no cycling, no diversity.
+        # With pixel embeddings (MNIST), most victims in the same digit cluster
+        # independently select the same extreme "most-opposite" donor, producing
+        # highly concentrated (few unique) poisoning → strong attack on small server.
+        for s_off in range(0, len(victims), chunk):
+            e_off = min(len(victims), s_off + chunk)
+            vi_batch = victims[s_off:e_off]
+            cos_batch = V[vi_batch] @ Vd.t()          # [batch, |U|]
+            best = torch.argmin(cos_batch, dim=1)      # [batch]
+            donor_idx[vi_batch] = U[best]
+
+    X_sw = X[donor_idx].clone()
+    n_unique = int(torch.unique(donor_idx).numel())
+    meta: Dict[str, Any] = {
+        "strategy": "optimal_topk",
+        "variant": "concentrated_argmin",
+        "topk": int(topk),
+        "core_q": float(core_q),
+        "seed": int(seed),
+        "topk_map_path": cache_path,
+        "n_clusters": len(uniq),
+        "union_topk_donor_pools": True,
+        "greedy_diverse_donors": False,
+        "unique_donors": n_unique,
+        "geometry": "clean_encoder" if V_override is not None else "raw_flatten",
+    }
+    return SwapResult(X_swapped=X_sw, donor_idx=donor_idx, meta=meta)
+
+
+@torch.no_grad()
 def _strategy_derangement(
     X: torch.Tensor,
     ids: torch.Tensor,
@@ -791,6 +875,7 @@ def apply_cluster_swap_to_part(
     aux_indices_by_class: Optional[Dict[int, np.ndarray]] = None,
     victim_pred_class: Optional[np.ndarray] = None,
     swap_geometry_vecs: Optional[torch.Tensor] = None,
+    use_concentrated_topk: bool = False,
 ) -> SwapResult:
     """Top-level entry point used by ``scripts/run_attack.py``.
 
@@ -819,6 +904,12 @@ def apply_cluster_swap_to_part(
             still copying **raw** ``X_part`` rows from donors (VFL semantics unchanged).
             Top-k / derangement JSON caches use a distinct ``_geomclean`` filename
             suffix so they are not confused with legacy pixel-geometry caches.
+        use_concentrated_topk: when True and strategy is ``"optimal_topk"``, uses
+            :func:`_strategy_optimal_topk_simple` (pure per-victim argmin, no
+            greedy-diversity cycling) instead of the default greedy-diverse variant.
+            Set automatically for MNIST / FashionMNIST by the attack and SOTA
+            comparison runners — pixel-space attacks on ``KPartyLegacyFlattenVFL``
+            are stronger with concentrated (few-unique-donor) poisoning.
     """
     if int(cluster_ids.shape[0]) != int(X_part.shape[0]):
         raise ValueError(
@@ -840,6 +931,24 @@ def apply_cluster_swap_to_part(
     os.makedirs(cluster_dir_for_cache, exist_ok=True)
 
     if s == "optimal_topk":
+        if use_concentrated_topk:
+            # MNIST / FashionMNIST path: pure per-victim argmin, no greedy-diversity
+            # cycling. Produces ~650 unique donors vs ~27K with greedy-diverse.
+            # Concentrated poisoning confuses the small KPartyLegacyFlattenVFL
+            # server (~40pp drop) vs diverse donors that server can average out (~23pp).
+            conc_cache = os.path.join(
+                cluster_dir_for_cache, f"{dataset_prefix}{sig}_concentrated_topk.json"
+            )
+            return _strategy_optimal_topk_simple(
+                X_part,
+                cluster_ids,
+                cluster_conf,
+                topk=topk,
+                core_q=core_q,
+                seed=seed,
+                cache_path=conc_cache,
+                V_override=swap_geometry_vecs,
+            )
         return _strategy_optimal_topk(
             X_part,
             cluster_ids,

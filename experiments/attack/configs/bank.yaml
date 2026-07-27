@@ -1,0 +1,56 @@
+# UCI-BANK Phase II attack — see docs/workflows/workflow_attack.md §10.2.
+#
+# IMPORTANT: bank_attack_split / bank_attack_share / swap.attacker_client_idx
+# MUST match the Phase I clustering YAML
+# (experiments/clustering/configs/bank_attack_k16.yaml). Otherwise the cluster
+# ids won't align with the attacker's vertical view.
+#
+# Why this is set up this way:
+#  - Round-robin partition leaves the *passive* client carrying most predictive
+#    signal; cluster-swap on a weak attacker view caps at ~3 pp drop.
+#  - skewed_attacker routes ~78% of MI-ranked features to client-0 → passive
+#    becomes weak → swap actually changes the global model's predictions.
+#  - bank_attack_model: asymmetric widens the attacker's bottom net and gives
+#    it a larger embedding share at the server head, so corruption flows
+#    further into the logits.
+#  - swap.strategies includes ``class_flip`` which uses cluster majority
+#    labels (computed from a small stratified aux subset - same threat model
+#    as Phase I) to swap each victim with a donor from the opposite-class
+#    cluster.
+#
+dataset: UCI-BANK
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+  tabular_train_fraction: 0.85
+train:
+  epochs: 80
+  batch_size: 512
+  lr: 0.001
+  weight_decay: 0.0
+
+# ── Attacker-favoring partition + asymmetric BANK model ─────────────────
+bank_attack_split: skewed_attacker
+bank_attack_share: 0.92
+bank_attack_model: asymmetric
+
+swap:
+  ignore_cluster_conf: true
+  strategies:
+    - class_flip
+    - optimal_topk
+    - derangement
+    - paired_clusters
+    - round_robin
+    - random_clusters
+    - random_per_sample
+  attacker_client_idx: 0
+  # Probe is informational; the partition already pins the attacker side.
+  attacker_probe: true
+  topk: 8
+  core_q: 0.35
+  cluster_dir: ./clusters
+  protect_test: true
+  use_signature_cache: false
+  class_flip_aux_frac: 0.05

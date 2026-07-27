@@ -1,0 +1,28 @@
+dataset: NUS-WIDE
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+train:
+  epochs: 30
+  batch_size: 1024
+  lr: 0.01
+nuswide:
+  npz_path: ./data/nuswide/nuswide_bow500_binary.npz
+  concept_pos: sky
+  concept_neg: clouds
+swap:
+  strategies:
+    - optimal_topk
+    - derangement
+    - paired_clusters
+    - round_robin
+    - random_clusters
+    - random_per_sample
+  attacker_client_idx: 0
+  attacker_probe: true
+  topk: 1
+  core_q: 0.5
+  cluster_dir: ./clusters
+  protect_test: true
+  use_signature_cache: false

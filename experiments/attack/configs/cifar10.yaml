@@ -1,0 +1,39 @@
+# CIFAR-10 K=2 width split + ResNet fusion (same as clean runner).
+# Phase-I clusters are encoder-based (SimCLR/teacher); legacy swap used **pixel**
+# cosine for donor geometry → weak alignment and modest drops. Enable
+# ``use_clean_encoder_geometry`` so optimal_topk / derangement / class_flip use
+# one forward pass through the **clean** attacker encoder (cached under
+# ``clean/attacker_train_embeddings.npy``) while still swapping **raw** halves.
+dataset: CIFAR-10
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+train:
+  epochs: 80
+  batch_size: 1024
+  lr: 0.001
+  weight_decay: 0.01
+  optimizer: adamw
+  augment_cifar10: true
+swap:
+  strategies:
+    - optimal_topk
+    - class_flip
+    - derangement
+    - paired_clusters
+    - round_robin
+    - random_clusters
+    - random_per_sample
+  attacker_client_idx: 0
+  attacker_probe: true
+  topk: 3
+  core_q: 0.6
+  cluster_dir: ./clusters
+  protect_test: true
+  use_signature_cache: false
+  # Widen donor pool beyond Phase-I confidence cores (label-free); often stronger on vision.
+  ignore_cluster_conf: true
+  # One batched encoder pass after clean train; reuse for all strategies that need geometry.
+  use_clean_encoder_geometry: true
+  save_attacker_embeddings: true

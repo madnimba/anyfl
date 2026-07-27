@@ -1,0 +1,25 @@
+dataset: CIFAR-100
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+train:
+  epochs: 120
+  batch_size: 128
+  lr: 0.001
+  weight_decay: 0.0005
+swap:
+  strategies:
+    - optimal_topk
+    - derangement
+    - paired_clusters
+    - round_robin
+    - random_clusters
+    - random_per_sample
+  attacker_client_idx: 0
+  attacker_probe: true
+  topk: 5
+  core_q: 0.6
+  cluster_dir: ./clusters
+  protect_test: true
+  use_signature_cache: false

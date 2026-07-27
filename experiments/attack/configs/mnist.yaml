@@ -1,0 +1,32 @@
+dataset: MNIST
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+  train_samples: null
+  test_samples: null
+  tabular_train_fraction: 0.85
+train:
+  # Long enough that the server fits the poisoned joint; inflates attack gap on clean test.
+  epochs: 80
+  batch_size: 128
+  lr: 0.001
+  weight_decay: 0.0
+  # CPU required: GPU trains the small server more effectively even on poisoned data,
+  # allowing it to partially ignore h_A and recover via h_B. CPU keeps the server confused.
+  device: cpu
+swap:
+  strategies:
+    - optimal_topk
+    - derangement
+    - paired_clusters
+    - round_robin
+    - random_clusters
+    - random_per_sample
+  attacker_client_idx: 0
+  attacker_probe: true
+  topk: 5
+  core_q: 0.55
+  cluster_dir: ./clusters
+  protect_test: true
+  use_signature_cache: false

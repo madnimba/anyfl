@@ -25,6 +25,119 @@ def _is_rgb_embedding_defense_dataset(dataset_name: str) -> bool:
     return d in {"CIFAR10", "CIFAR100", "STL10"}
 
 
+def _is_tabular_party_mlp_defense_dataset(dataset_name: str) -> bool:
+    """UCI-HAR / Mushroom / UCI-BANK tabular stacks (``KPartyTabularMLP`` family)."""
+    d = _norm_dataset(dataset_name)
+    return d in {"UCIHAR", "HAR", "UCIMUSHROOM", "MUSHROOM", "UCIBANK", "BANK"}
+
+
+def _is_ucihar_family(dataset_name: str) -> bool:
+    d = _norm_dataset(dataset_name)
+    return d in {"UCIHAR", "HAR"}
+
+
+def _is_ucibank_family(dataset_name: str) -> bool:
+    d = _norm_dataset(dataset_name)
+    return d in {"UCIBANK", "BANK"}
+
+
+# Tabular party embeddings are stable (no RandAug); defaults emphasize reference + recon
+# budget and moderate blend floors. HAR asymmetric (96 vs 8 dims) gets an extra overlay
+# (larger ``recon_hidden``, slightly higher ``tau_pair``) — override via ``defense.rgar:``.
+_RGAR_TABULAR_DEFAULTS: Dict[str, Any] = {
+    "ref_frac": 0.12,
+    "ref_warmup_epochs": 12,
+    "recon_epochs": 260,
+    "recon_batch_size": 64,
+    "recon_lr": 1.4e-3,
+    "tau_pair": 0.28,
+    "tau_global": 0.04,
+    "watch_window_epochs": 3,
+    "min_w_recon_when_suspicious": 0.70,
+    "suspicion_recon_strength": 0.88,
+    "global_recon_boost": 0.55,
+    "tau_recon_lo": 0.08,
+    "tau_recon_hi": 0.42,
+    "proto_snap_weight": 0.20,
+    "pair_w_joint": 0.50,
+    "modality_dropout_p": 0.0,
+    "recon_hidden": 320,
+}
+
+# Asymmetric HAR: ``g(h_B,y) -> h_A`` is ill-posed (8-D passive vs 96-D attacker). Blending
+# toward a wrong ``h_hat`` *hurts* vs naked. Use ``soft_recon_h_hat_mode: proto_a`` so
+# suspicious rows pull toward **reference class prototypes** ``p_A[y]`` (honest attacker
+# geometry keyed by the still-correct label), not the unreliable honest-view MLP.
+_RGAR_UCIHAR_TABULAR_OVERLAY: Dict[str, Any] = {
+    # Repair target: blend suspicious h_A toward p_A[y] (class prototype from clean ref).
+    # p_A[y] is reliable because y is still correct under cluster-swap; avoids the ill-posed
+    # g(h_B,y)->h_A map (8-D passive cannot uniquely determine 96-D attacker embedding).
+    "soft_recon_h_hat_mode": "proto_a",
+    # Keep prototypes aligned with the evolving encoder (one cheap ref forward pass / epoch).
+    "refit_ref_every_epoch": True,
+    # After global attribution fires, freeze attacker encoder: only passive + server update.
+    # Eliminates the (1-w)*h_A gradient path that let the poisoned encoder keep learning.
+    "freeze_attacker_on_attribution": True,
+    # Suspicion scoring: reduce joint-cosine weight to avoid false alarms on noisy 96||8 joint.
+    "pair_w_joint": 0.10,
+    "pair_w_proto": 1.0,
+    "tau_pair": 0.38,
+    "tau_global": 0.045,
+    "watch_window_epochs": 3,
+    # High blend weights: p_A[y] is trustworthy → aggressively replace corrupted h_A.
+    # Previous values (0.14 / 0.20) left 68%+ of poisoned embedding reaching the server.
+    "min_w_recon_when_suspicious": 0.85,
+    "suspicion_recon_strength": 0.94,
+    # global_recon_boost is now applied directly (not scaled by 1-rho_a) for proto_a mode.
+    "global_recon_boost": 0.92,
+    "proto_snap_weight": 0.0,
+    "tau_recon_lo": 0.05,
+    "tau_recon_hi": 0.38,
+    "recon_hidden": 384,
+    "recon_label_emb_dim": 48,
+    "recon_cosine_weight": 0.0,
+    "modality_dropout_p": 0.0,
+}
+
+
+# UCI-BANK asymmetric: dim(h_A)=96, dim(h_B)=2 — even more extreme than HAR.
+# The passive 2-D linear projection is intentionally weak (attack design), making
+# g(h_B,y)->h_A completely hopeless. class_flip gives donor_label_flip~0.90, so
+# 90% of suspicious rows have a genuine opposite-class donor — p_A[y] is the
+# exact right repair direction (y stays correct under cluster-swap).
+# Same refit+freeze strategy as HAR; lower joint weight since 2-D h_B dominates nothing.
+_RGAR_BANK_TABULAR_OVERLAY: Dict[str, Any] = {
+    # Repair target: class prototype (binary: only 2 prototypes, both well-estimated on ref).
+    "soft_recon_h_hat_mode": "proto_a",
+    "refit_ref_every_epoch": True,
+    "freeze_attacker_on_attribution": True,
+    # Scoring: h_B is 2-D linear → joint [h_A(96), h_B(2)] cosine is dominated by h_A.
+    # Reduce joint weight to near-zero; rely on Mahalanobis d_A to drive suspicion.
+    "pair_w_joint": 0.06,
+    "pair_w_proto": 1.0,
+    # Lower tau_pair: class_flip creates strong h_A inconsistency (donor is opposite class),
+    # so even a moderate d_A signal should exceed the threshold quickly.
+    "tau_pair": 0.28,
+    "tau_global": 0.045,
+    "watch_window_epochs": 3,
+    # High blend: p_A[y] is reliable (binary, balanced ref, donor_label_flip~0.90).
+    "min_w_recon_when_suspicious": 0.88,
+    "suspicion_recon_strength": 0.96,
+    # proto_a mode: global_recon_boost applied directly (not scaled by 1-rho_A).
+    "global_recon_boost": 0.94,
+    "proto_snap_weight": 0.0,
+    "tau_recon_lo": 0.04,
+    "tau_recon_hi": 0.28,
+    # Aggressive rho decay: passive (2-D) cannot compensate → push attacker trust to floor fast.
+    "rho_floor": 0.08,
+    "rho_decay_on_attrib": 0.40,
+    "recon_hidden": 192,
+    "recon_label_emb_dim": 16,   # binary: only 2 classes
+    "recon_cosine_weight": 0.0,
+    "modality_dropout_p": 0.0,
+}
+
+
 # Flatten-VFL defaults in ``RGARConfig`` use low ``tau_pair`` + aggressive recon floors
 # tuned for ~392-dim ReLU flats. RGB embeddings (256+256) + RandAug inflate ``s_pair``,
 # which otherwise marks ~100% of batches “suspicious” and replaces most of ``h_A`` with
@@ -62,6 +175,9 @@ class DefensePipelineConfig:
     # When true and dataset is CIFAR-10/100 or STL-10, merge ``_RGAR_VISION_DEFAULTS`` before
     # applying ``rgar`` YAML (so embedding + RandAug runs do not use flatten-tuned thresholds).
     use_rgar_vision_defaults: bool = True
+    # When true and dataset is UCI-HAR / Mushroom, merge ``_RGAR_TABULAR_DEFAULTS`` (and HAR
+    # overlay) before ``defense.rgar:`` — mutually exclusive with vision presets by dataset.
+    use_rgar_tabular_defaults: bool = True
 
     def __post_init__(self):
         if self.rgar is None:
@@ -88,6 +204,7 @@ def load_defense_experiment_bundle(path: str) -> DefenseExperimentBundle:
         rgar_downweight=bool(def_raw.get("rgar_downweight", False)),
         rgar={str(k): v for k, v in (def_raw.get("rgar") or {}).items()},
         use_rgar_vision_defaults=bool(def_raw.get("use_rgar_vision_defaults", True)),
+        use_rgar_tabular_defaults=bool(def_raw.get("use_rgar_tabular_defaults", True)),
     )
     return DefenseExperimentBundle(attack=atk, defense=dpl)
 
@@ -105,6 +222,16 @@ def rgar_config_from_defense_block(
         and _is_rgb_embedding_defense_dataset(dataset_name)
     ):
         merged.update(_RGAR_VISION_DEFAULTS)
+    elif (
+        bool(dpl.use_rgar_tabular_defaults)
+        and dataset_name is not None
+        and _is_tabular_party_mlp_defense_dataset(dataset_name)
+    ):
+        merged.update(_RGAR_TABULAR_DEFAULTS)
+        if _is_ucihar_family(dataset_name):
+            merged.update(_RGAR_UCIHAR_TABULAR_OVERLAY)
+        elif _is_ucibank_family(dataset_name):
+            merged.update(_RGAR_BANK_TABULAR_OVERLAY)
     merged.update(dict(dpl.rgar))
     valid = {f.name for f in fields(RGARConfig)}
     kwargs: Dict[str, Any] = {}

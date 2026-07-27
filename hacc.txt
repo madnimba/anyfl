@@ -157,3 +157,16 @@ Best cluster -> label mapping:
   cluster   3 -> label   2  count=1284
   cluster   4 -> label   1  count=1452
   cluster   5 -> label   0  count=1520
+
+
+
+
+
+
+
+
+
+
+
+  as you can see from the banks run and the experiment results of banks, the attack success isn't even slightly there! We were targetting for 50% catastrophe but the model performance sat there! are you sure that you have implemented the attack pipeline correctly? please go over it, lets go dataset by dataset and fix it for banks first. 
+let's focus on the attack now, we will fix the defenses later

@@ -202,6 +202,7 @@ def train_rgar_embedding_fusion(
         float(rgar_cfg.recon_lr),
         weight_decay=float(rgar_cfg.recon_weight_decay),
         batch_size=int(rgar_cfg.recon_batch_size),
+        recon_cosine_weight=float(rgar_cfg.recon_cosine_weight),
     )
     engine.freeze_reconstructor()
 

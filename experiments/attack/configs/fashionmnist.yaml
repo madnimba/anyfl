@@ -1,0 +1,26 @@
+dataset: Fashion-MNIST
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+train:
+  epochs: 80
+  batch_size: 128
+  lr: 0.001
+  weight_decay: 0.0
+  device: cpu   # same reason as MNIST: CPU keeps small server confused by poisoning
+swap:
+  strategies:
+    - optimal_topk
+    - derangement
+    - paired_clusters
+    - round_robin
+    - random_clusters
+    - random_per_sample
+  attacker_client_idx: 0
+  attacker_probe: true
+  topk: 5
+  core_q: 0.55
+  cluster_dir: ./clusters
+  protect_test: true
+  use_signature_cache: false

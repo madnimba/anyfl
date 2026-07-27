@@ -1,0 +1,63 @@
+# UCI-HAR: cluster-swap + RGAR (KPartyHarTabularAsymmetricMLP + MI-ranked partition).
+# Phase I clusters: ./clusters/HAR_ids.npy (seed must match clustering config).
+# Mirrors ``experiments/attack/configs/ucihar.yaml``; raises ``defense.rgar`` recon budget for recovery.
+#
+# Runner: .venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/ucihar.yaml
+dataset: UCI-HAR
+k_clients: 2
+seed: 42
+data:
+  data_dir: ./data
+  tabular_train_fraction: 0.85
+train:
+  epochs: 80
+  batch_size: 256
+  lr: 0.001
+  weight_decay: 0.0
+  # Match saved attack runs (e.g. 20260503T115545Z): default TrainConfig uses CUDA when
+  # available, which changes optimization path vs CPU Phase-II attack numbers.
+  device: cpu
+  optimizer: adam
+
+stealth_oracle_labels: true
+
+har_attack_split: mi_ranked
+har_attack_share: 0.88
+har_attack_model: asymmetric
+har_aux_labeled_frac: 0.03
+
+swap:
+  ignore_cluster_conf: true
+  strategies:
+    - class_flip
+    - optimal_topk
+    - derangement
+    - paired_clusters
+    - round_robin
+    - random_clusters
+    - random_per_sample
+  attacker_client_idx: 0
+  attacker_probe: false
+  topk: 6
+  core_q: 0.45
+  cluster_dir: ./clusters
+  protect_test: true
+  use_signature_cache: false
+  class_flip_aux_frac: 0.05
+
+defense:
+  run_naked_poisoned: true
+  rgar_full: true
+  rgar_downweight: false
+  use_rgar_tabular_defaults: true   # applies tabular preset + HAR overlay (see defense_config.py)
+  # HAR overlay already sets: soft_recon_h_hat_mode=proto_a, refit_ref_every_epoch=True,
+  # freeze_attacker_on_attribution=True, min_w_recon_when_suspicious=0.85, global_recon_boost=0.92.
+  # Keys below override the overlay last (YAML wins).
+  rgar:
+    ref_frac: 0.16
+    ref_warmup_epochs: 14
+    # MLP reconstructor is not used as blend target in proto_a mode; keep short for speed.
+    recon_epochs: 120
+    recon_lr: 1.2e-3
+    recon_batch_size: 96
+    recon_weight_decay: 2.0e-5

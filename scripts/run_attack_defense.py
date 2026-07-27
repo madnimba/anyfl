@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Attack + RGAR defense pipeline (K=2).
 
-Supports **MNIST / Fashion-MNIST** (``KPartyLegacyFlattenVFL``) and **RGB vision**
-datasets that use ``KPartyEmbeddingFusion`` (e.g. **CIFAR-10**, STL-10, CIFAR-100).
+Supports **MNIST / Fashion-MNIST** (``KPartyLegacyFlattenVFL``), **RGB vision**
+(``KPartyEmbeddingFusion``: CIFAR-10/100, STL-10), and **tabular** UCI-HAR /
+UCI-Mushroom (``KPartyTabularMLP`` / ``KPartyHarTabularAsymmetricMLP``).
 
 Does **not** modify ``scripts/run_attack.py``. Same partition / cluster artifacts /
 swap strategies as the attack runner, then optionally:
@@ -47,11 +48,15 @@ from vfl.attack.swap import STRATEGIES, apply_cluster_swap_to_part, load_cluster
 from vfl.data.registry import DatasetRequest, load_dataset
 from vfl.defense.rgar_embedding_fusion import train_rgar_embedding_fusion
 from vfl.defense.rgar_flat_vfl import train_rgar_flatten_vfl
+from vfl.defense.rgar_tabular_mlp import train_rgar_tabular_mlp
+from vfl.models.bank_paper_mlp import KPartyBankAsymmetricMLP, KPartyBankCompactMLP
 from vfl.models.fusion import KPartyEmbeddingFusion
 from vfl.models.legacy_flat_vfl import KPartyLegacyFlattenVFL
+from vfl.models.tabular_mlp_vfl import KPartyHarTabularAsymmetricMLP, KPartyTabularMLP
 from vfl.train.build import build_model_for_dataset, partition_for_dataset
 from vfl.train.loop import train_clean
 from vfl.utils.defense_config import load_defense_experiment_bundle, rgar_config_from_defense_block
+from vfl.utils.har_partition_check import verify_har_mi_rank_order_matches_artifacts
 from vfl.utils.repro import get_env_info, get_git_info, make_run_dir, set_global_seed, write_json
 
 
@@ -62,11 +67,23 @@ def _norm_ds(name: str) -> str:
 def _assert_defense_scope(bundle) -> None:
     cfg = bundle.attack
     d = _norm_ds(cfg.dataset)
-    ok = d in {"MNIST", "FASHIONMNIST", "CIFAR10", "CIFAR100", "STL10"}
+    ok = d in {
+        "MNIST",
+        "FASHIONMNIST",
+        "CIFAR10",
+        "CIFAR100",
+        "STL10",
+        "UCIHAR",
+        "HAR",
+        "UCIMUSHROOM",
+        "MUSHROOM",
+        "UCIBANK",
+        "BANK",
+    }
     if not ok:
         raise ValueError(
-            "Defense runner supports MNIST, Fashion-MNIST, CIFAR-10/100, STL-10 "
-            f"(K=2). Got dataset={cfg.dataset!r}."
+            "Defense runner supports MNIST, Fashion-MNIST, CIFAR-10/100, STL-10, "
+            f"UCI-HAR, UCI-Mushroom, UCI-BANK (K=2). Got dataset={cfg.dataset!r}."
         )
     if int(cfg.k_clients) != 2:
         raise ValueError("Defense RGAR paths require k_clients=2.")
@@ -125,9 +142,33 @@ def _train_rgar_dispatch(
             downweight_only=downweight_only,
             seed=int(seed),
         )
+    if isinstance(
+        model,
+        (
+            KPartyTabularMLP,
+            KPartyHarTabularAsymmetricMLP,
+            KPartyBankAsymmetricMLP,
+            KPartyBankCompactMLP,
+        ),
+    ):
+        return train_rgar_tabular_mlp(
+            model,
+            X_parts_clean=X_parts_clean,
+            X_parts_poison=X_parts_poison,
+            y_train=y_train,
+            X_parts_test=X_parts_test,
+            y_test=y_test,
+            attacker_idx=attacker_idx,
+            train_cfg=train_cfg,
+            rgar_cfg=rgar_cfg,
+            task=task,
+            downweight_only=downweight_only,
+            seed=int(seed),
+        )
     raise TypeError(
         f"RGAR defense not implemented for model type {type(model).__name__}; "
-        "use KPartyLegacyFlattenVFL or KPartyEmbeddingFusion."
+        "use KPartyLegacyFlattenVFL, KPartyEmbeddingFusion, or tabular K-party MLP "
+        "(KPartyTabularMLP / KPartyHarTabularAsymmetricMLP / KPartyBankAsymmetricMLP / KPartyBankCompactMLP)."
     )
 
 
@@ -173,6 +214,13 @@ def run_one_defense(
     )
 
     prefix = _prefix_for_clusters(ds.name)
+    if prefix == "HAR":
+        verify_har_mi_rank_order_matches_artifacts(
+            cluster_dir=str(cfg.swap.cluster_dir),
+            part_meta=part_meta,
+            har_attack_split=cfg.har_attack_split,
+            experiment_seed=int(cfg.seed),
+        )
     ids, conf, cluster_meta = load_cluster_artifacts(prefix, cluster_dir=cfg.swap.cluster_dir)
     conf_for_swap = None if bool(cfg.swap.ignore_cluster_conf) else conf
     if int(ids.shape[0]) != int(ds.X_train.shape[0]):
@@ -248,6 +296,7 @@ def run_one_defense(
             "rgar_full": bool(dpl.rgar_full),
             "rgar_downweight": bool(dpl.rgar_downweight),
             "use_rgar_vision_defaults": bool(dpl.use_rgar_vision_defaults),
+            "use_rgar_tabular_defaults": bool(dpl.use_rgar_tabular_defaults),
             "rgar_yaml_overrides": dict(dpl.rgar),
         },
         "per_strategy": {},
@@ -288,7 +337,9 @@ def run_one_defense(
     cluster_majority_label: Optional[Dict[int, int]] = None
     aux_pool_by_class: Optional[Dict[int, np.ndarray]] = None
     victim_pred_class: Optional[np.ndarray] = None
-    if "class_flip" in strategies:
+    # Match ``run_attack.py``: precompute when YAML lists ``class_flip``, even if
+    # ``--strategy`` filters the run (swap RNG is still reset per strategy).
+    if "class_flip" in list(cfg.swap.strategies):
         y_np_full = ds.y_train.detach().cpu().numpy().astype(np.int64)
         cluster_majority_label = _ra._cluster_majority_from_aux_labels(
             ids_np=ids.detach().cpu().numpy().astype(np.int64),
@@ -464,10 +515,22 @@ def run_one_defense(
         drop = acc_clean - float(row.get("acc_naked_poisoned", acc_clean))
         rec = acc_clean - float(row.get("acc_rgar_full", acc_clean))
         ar = row.get("acc_rgar_full")
+        an = row.get("acc_naked_poisoned")
+        an_s = f"{float(an)*100:.2f}%" if an is not None else "n/a"
         ar_s = f"{float(ar)*100:.2f}%" if ar is not None else "n/a"
+        rec_vs_naked_pp = (
+            (float(ar) - float(an)) * 100.0
+            if ar is not None and an is not None
+            else float("nan")
+        )
+        rgar_rec_s = (
+            f"{rec_vs_naked_pp:+.2f}pp vs naked"
+            if rec_vs_naked_pp == rec_vs_naked_pp
+            else "n/a"
+        )
         print(
-            f"[DEF] strat={strat:<18} naked_drop={drop*100:5.2f}pp "
-            f"rgar_gap_vs_clean={rec*100:5.2f}pp acc_rgar={ar_s}",
+            f"[DEF] strat={strat:<18} naked_acc={an_s} (drop_vs_clean={drop*100:5.2f}pp) "
+            f"rgar_acc={ar_s} (gap_vs_clean={rec*100:5.2f}pp, {rgar_rec_s})",
             flush=True,
         )
 
@@ -477,7 +540,7 @@ def run_one_defense(
 
 def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(
-        description="Cluster-swap attack + RGAR defense (MNIST/Fashion/CIFAR/STL)"
+        description="Cluster-swap attack + RGAR defense (MNIST/Fashion/CIFAR/STL/HAR/Mushroom)"
     )
     p.add_argument("--config", type=str, required=True, help="Defense YAML (attack schema + defense: block)")
     p.add_argument("--out_base", type=str, default="experiments/defense/runs")

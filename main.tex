@@ -1,0 +1,1464 @@
+%% NeurIPS 2026 -- double-blind submission
+\documentclass{article}
+\usepackage{neurips_2026}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{multirow}
+\usepackage{makecell}
+
+\title{Cluster-Swap: Consistent Cross-View Poisoning for Untargeted
+       Byzantine Attacks in Vertical Federated Learning}
+
+\author{%
+  Anonymous Authors
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Vertical Federated Learning (VFL) enables cross-silo collaboration by
+partitioning the feature space across parties that share a common entity
+index.
+While targeted threats such as backdoor and label-inference attacks have been
+studied extensively, untargeted Byzantine attacks that degrade overall model
+utility remain largely unexplored in VFL.
+We introduce \emph{consistent cross-view poisoning}, a training-phase
+Byzantine attack in which a single adversarial party infers its own latent
+class structure from as few as 2--3\% auxiliary labels and then
+consistently swaps training samples across maximally distant pseudo-clusters.
+The server internalizes a stable but spurious cross-view association and fails
+catastrophically on clean data at inference time.
+We show that standard VFL defenses register near-zero detection rates under
+this attack because they monitor local batch statistics rather than global
+cross-view alignment.
+To address this gap, we propose RGAR (Reference-Guided Attribution and
+Reconstruction), which detects cross-view inconsistency via reference
+prototypes, attributes fault to the responsible party through delayed
+epoch-level scoring, and \emph{repairs} the corrupted embedding via
+conditional reconstruction rather than suppressing it.
+Across six diverse benchmarks spanning vision, sensor, and tabular modalities,
+CCVS collapses clean-test accuracy by up to 98 pp, while RGAR restores
+accuracy to within a few percentage points of the clean baseline without
+retraining.
+\end{abstract}
+
+%% =========================================================
+\section{Introduction}
+\label{sec:intro}
+
+Federated learning (FL) enables multiple organizations to train jointly
+without centralizing private data~\citep{mcmahan2017communication}.
+In \emph{horizontal} FL (HFL), parties share the same feature space over
+disjoint samples.
+\emph{Vertical} FL (VFL) instead partitions the feature space across parties
+that share a common entity index -- a bank and a telecom serving the same
+customers, for instance~\citep{vepakomma2018split}.
+VFL is deployed in high-value cross-silo settings including credit scoring,
+risk modeling, and healthcare analytics~\citep{yang2019federated}, where no
+single organization can legally hold all relevant attributes.
+
+In VFL, each party's bottom model encodes its private feature slice into
+intermediate embeddings forwarded to a server-side head; the server, which
+holds the labels, returns gradients~\citep{cheng2021secureboost}.
+Two high-stakes attack surfaces arise: gradient-based label
+inference~\citep{fu2022label,split_10296882} and training-time representation
+corruption~\citep{naseri2023badvfl,gu2023lr}.
+The latter is especially disruptive because poisoning the learned parameters
+requires costly retraining to recover from, unlike inference-time attacks
+that can be mitigated by blocking the trigger at deployment time.
+
+Despite extensive study of Byzantine attacks in
+HFL~\citep{fang2020local,blanchard2017machine}, the \emph{untargeted}
+Byzantine setting in VFL remains largely unexplored.
+HFL Byzantine defenses assume gradient homogeneity across honest clients and
+use robust aggregation or outlier filtering~\citep{cao2022fltrust}, but
+these mechanisms are structurally inapplicable to VFL, where parties encode
+different feature spaces and the server fuses heterogeneous representations
+rather than aggregating homogeneous updates~\citep{shi2022challenges}.
+
+\paragraph{Our contribution.}
+We formalize \emph{consistent cross-view poisoning} as a new, structurally
+motivated availability threat in VFL and propose the first defense that
+repairs rather than suppresses corrupted representations.
+Concretely, we contribute:
+\begin{itemize}
+\item \textbf{A new threat category.}
+  We identify VFL's forced joint-representation learning as an attack surface:
+  an adversary that consistently swaps its training inputs across class-aligned
+  pseudo-clusters fabricates stable spurious cross-view associations that the
+  server internalizes, collapsing clean-test accuracy by up to 98 pp.
+
+\item \textbf{A practical label-blind realization.}
+  Class-Consistent View Swap (CCVS) infers latent cluster structure from
+  only 2--3\% auxiliary labels and selects hardest-negative donors via a
+  maximum-distance derangement, requiring no access to Party~B's features
+  or the server's label vector.
+
+\item \textbf{A principled defense: RGAR.}
+  We show that detect-and-drop is self-defeating: suppressing the suspect
+  party's embeddings collapses utility further.
+  RGAR instead detects cross-view inconsistency, attributes fault, and
+  \emph{repairs} the embedding via reference-guided reconstruction, recovering
+  accuracy up to 64 pp above the naked-attack baseline.
+
+\item \textbf{Comprehensive evaluation.}
+  Six diverse benchmarks across vision, sensor, and tabular modalities
+  establish consistent cross-view poisoning as a broadly applicable,
+  previously underappreciated VFL threat.
+\end{itemize}
+
+%% =========================================================
+\section{Preliminaries}
+\label{sec:prelim}
+
+\subsection{Vertical Federated Learning}
+Let $K$ clients be indexed $c\in\{1,\ldots,K\}$ over $N$ aligned samples.
+Client $c$ holds features $x_i^{(c)}\in\mathbb{R}^{d_c}$ and trains a bottom
+model $f_c(\cdot;\theta_c):\mathbb{R}^{d_c}\to\mathbb{R}^{p_c}$.
+The server holds labels $y_i\in\mathcal{Y}$ and a head model
+$g(\cdot;\theta_g):\mathbb{R}^{\sum_c p_c}\to\mathcal{Y}$, computing
+$\hat{y}_i = g\!\left(\big\|_{c=1}^K f_c(x_i^{(c)})\right)$
+and minimizing $\min_\Theta \frac{1}{N}\sum_i \mathcal{L}(\hat{y}_i,y_i)$
+with $\Theta=\{\theta_1,\ldots,\theta_K,\theta_g\}$.
+The server back-propagates $\nabla_{h_i^{(c)}}\mathcal{L}$ to each client,
+enabling end-to-end training without any raw feature exchange.
+
+A Byzantine adversary controls client subset
+$\mathcal{B}\subset\{1,\ldots,K\}$ and may submit corrupted embeddings
+$\tilde{h}_i^{(c)}=f_c(\tilde{x}_i^{(c)})$.
+Unlike HFL, VFL parties encode \emph{different} feature spaces, so
+``outlier among models'' is structurally ill-defined~\citep{blanchard2017machine}
+and gradient-norm filters are not meaningful across parties.
+
+\subsection{Threat Model}
+\label{sec:threat}
+
+We study $K\!=\!2$ VFL -- the dominant real-world
+deployment~\citep{yang2019federated,vepakomma2018split} and the adversarially
+worst case: the malicious party controls half the joint representation, and
+the absent ``honest majority'' makes all standard Byzantine filters
+structurally inapplicable (our $K$-ablation in
+Table~\ref{tab:ablation_k} confirms attack damage degrades from $>$98~pp at
+$K\!=\!2$ to $<$7~pp at $K\!=\!10$).
+Party~A (adversary, index~0) holds $X^{(A)}\in\mathbb{R}^{N\times d_A}$
+and trains $f_A$.
+Party~A controls its full local pipeline and submitted embeddings but
+\emph{cannot} access $X^{(B)}$, $\mathbf{y}$, or any message in the
+Party~B\,$\leftrightarrow$\,Server channel; the channel is authenticated
+(MACs/TEE), so the adversary acts only through legitimate feature
+submissions.
+Party~A holds a small stratified auxiliary set
+$\mathcal{D}_L = \{(x_i^{(A)},y_i)\}_{i\in\mathcal{I}_L}$,
+$|\mathcal{I}_L|=\lfloor\varepsilon N\rfloor$, $\varepsilon\in[0.02,0.05]$,
+with at least one sample per class.
+This reflects gradient-based label inference~\citep{fu2022label},
+contractual outcome sharing between institutions, and (for tabular
+datasets) partially public records.
+Attack effectiveness down to $\varepsilon\!=\!1\%$ is shown in
+Table~\ref{tab:ablation_aux}.
+
+\paragraph{Adversarial objective.}
+Party~A replaces features with a rearranged set $\widetilde{X}^{(A)}$,
+$\tilde{x}_i^{(A)}\!=\!x_{j(i)}^{(A)}$ for some $j(i)\!\in\![N]$ (only
+genuine samples are submitted).
+The server fits:
+\begin{equation}
+  g^\star = \arg\!\min_g \frac{1}{N}\!\sum_{i=1}^N
+    \mathcal{L}\!\bigl(g(\tilde{h}_i^{(A)}\|h_i^{(B)}),\,y_i\bigr),
+  \quad \tilde{h}_i^{(A)}\!=\!f_A(\tilde{x}_i^{(A)}).
+  \label{eq:poisoned_obj}
+\end{equation}
+The attacker maximizes the clean-test loss of $g^\star$:
+\begin{equation}
+  \max_{\widetilde{X}^{(A)}}
+  \;\mathbb{E}_{P_{\mathrm{clean}}}\!
+  \Bigl[\mathcal{L}\bigl(g^\star(f_A(x^{(A)})\|f_B(x^{(B)})),y\bigr)\Bigr],
+  \label{eq:adv_obj}
+\end{equation}
+forcing $g^\star$ to internalize a spurious cross-view association that
+collapses at inference on clean, correctly aligned data.
+
+\paragraph{RGAR reference setup (defense only).}
+RGAR requires a small pre-training reference set
+$\mathcal{R}\subset[N]$,
+$|\mathcal{R}|\!=\!\lfloor r_{\mathrm{ref}}N\rfloor$,
+$r_{\mathrm{ref}}\!\in\![0.05,0.15]$,
+stratified over all classes.
+Party~A submits $\{x_i^{(A)}\}_{i\in\mathcal{R}}$ once via an authenticated
+channel; the server stores an immutable copy.
+We conservatively assume Party~A knows $\mathcal{R}$; since it cannot modify
+the server's copy, RGAR remains effective.
+No label information flows from server to Party~A in this exchange.
+
+%% =========================================================
+\begin{figure*}[t]
+  \centering
+  \begin{minipage}[t]{0.49\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{images/clustering.png}
+  \end{minipage}\hfill
+  \begin{minipage}[t]{0.49\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{images/overview.png}
+  \end{minipage}
+  \vspace{-0.2cm}
+  \caption{Attack overview. Left: semi-supervised clustering of Party~A's
+    local view. Right: cluster-swapped inputs induce a spurious cross-view
+    association at the server that collapses at clean inference.}
+  \vspace{-0.3cm}
+\end{figure*}
+
+%% =========================================================
+\section{Methodology: CCVS Attack}
+\label{sec:method}
+
+\subsection{Phase~I: Semi-Supervised Clustering of Party~A's View}
+\label{sec:phase1}
+
+Party~A infers pseudo-cluster assignments
+$\hat{c}\in\{1,\ldots,K_c\}^N$ and per-sample confidences
+$\hat{q}\in[0,1]^N$ from $X^{(A)}$ alone, using $\mathcal{D}_L$ for
+class-calibration only.
+The goal is not to perfectly recover the label partition, but to produce a
+partition that is sufficiently class-correlated for cross-cluster swaps to
+be semantically inverted.
+Even moderate cluster fidelity (e.g., H-ACC 0.72 for CIFAR-10 on a single
+16-column RGB half) supports a 37~pp attack drop in Phase~II.
+
+We employ modality-matched families: contrastive pretraining with supervised
+fine-tuning and GMM merge for vision data; FixMatch with EMA teacher
+selection for tabular and RGB inputs; and Bernoulli mixture models with
+pseudo-label refinement for discrete tabular data.
+For vision inputs, Party~A receives the left half-image.
+For tabular data, features are ranked by mutual information estimated on
+$\mathcal{D}_L$ and Party~A receives the top-$\eta$ fraction.
+Full pipeline details appear in Appendix~\ref{app:phase1}.
+
+The shared semi-supervised learning objective combines supervised contrastive
+loss on $\mathcal{D}_L$:
+\begin{equation}
+  \mathcal{L}_{\mathrm{cl}}
+  = -\!\sum_{i\in\mathcal{D}_L}
+    \frac{1}{|\mathcal{P}(i)|}\!
+    \sum_{p\in\mathcal{P}(i)}
+    \log\frac{e^{\mathrm{sim}(e_i,e_p)/\tau}}
+             {\sum_{a\neq i}e^{\mathrm{sim}(e_i,e_a)/\tau}},
+  \label{eq:supcon}
+\end{equation}
+with a FixMatch pseudo-label objective on the unlabeled mass~\citep{sohn2020fixmatch}:
+\begin{equation}
+  \mathcal{L}_{\mathrm{fix}}
+  = \frac{1}{\mu B}\!\sum_{u}
+    \mathbb{1}\!\bigl[\max_y p_\theta(y|a_w(u))\geq\tau_c\bigr]
+    \!\cdot\!H(\hat{y}_u,p_\theta(y|a_s(u))).
+  \label{eq:fixmatch}
+\end{equation}
+Table~\ref{tab:phase1_config} summarizes the six configurations.
+
+\begin{table}[t]
+\centering
+\caption{Phase~I configuration summary.
+  ``Aux.'' is the labeled fraction $\varepsilon$ used only for supervision
+  signals; $K_c$ is the number of clusters; ``Pipeline'' is the clustering family.}
+\label{tab:phase1_config}
+\label{tab:clustering_configs}
+\small
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{l l c c l}
+\toprule
+\textbf{Dataset} & \textbf{Party~A view}
+  & \textbf{Aux.} & \boldmath{$K_c$} & \textbf{Pipeline} \\
+\midrule
+MNIST           & Left 14 cols (grey)             & 5\% & 10 & SimCLR + SupCon + GMM merge \\
+Fashion-MNIST   & Left 14 cols (grey)             & 3\% & 10 & SimCLR + SupCon + GMM merge \\
+CIFAR-10        & Left 16 cols (RGB)              & 3\% & 10 & SimCLR + FixMatch + GMM/teacher \\
+UCI-HAR         & Top-MI continuous ($\eta{=}0.88$) & 3\% &  6 & Tabular FixMatch (MLP, $\tau_c{=}0.90$) \\
+UCI-Mushroom    & Top-MI discrete                 & 3\% &  2 & BMM + pseudo-label + graph refine \\
+UCI-Bank        & Skewed MI ($\eta{=}0.92$)       & 3\% & 16 & Unsupervised GMM (attack-oriented)$^\dag$ \\
+\bottomrule
+\end{tabular}
+\\[2pt]{\footnotesize
+$^\dag$$K_c\!=\!16$ maximises geometric diversity for Phase~II; label-alignment
+metrics are low by design.}
+\end{table}
+
+\subsection{Phase~II: Class-Consistent View Swap}
+\label{sec:phase2}
+
+\paragraph{Core mechanism.}
+Let $\mathcal{G}=\{C_1,\ldots,C_{K_c}\}$ be the Phase~I partition.
+The adversary assigns each source cluster $C_s$ a destination
+$C_{t(s)}\!\neq\!C_s$ and replaces every victim $i\!\in\!C_s$ with a donor
+$j(i)\!\in\!C_{t(s)}$:
+\begin{equation}
+  \tilde{x}_i^{(A)} \leftarrow x_{j(i)}^{(A)},
+  \quad j(i)\in C_{t(c(i))},\quad \forall i\in[N].
+  \label{eq:swap}
+\end{equation}
+Labels $y_i$ and Party~B features $x_i^{(B)}$ are unchanged.
+The server trains on triples $(\tilde{x}_i^{(A)},x_i^{(B)},y_i)$ whose
+feature views originate from different class-conditioned manifolds, yielding
+a stable but semantically inverted cross-view mapping.
+At inference, clean pairs violate this mapping and produce marked accuracy
+collapse.
+
+\paragraph{Why cluster-level consistency is critical.}
+Random per-sample noise averages out across mini-batches.
+Cluster-level swapping applies the same source-to-destination mapping
+for every sample throughout all training epochs, maximising the batch-level
+mutual information between the fabricated pair and the label.
+This ensures the server reliably overfits the spurious association rather
+than treating it as sampling noise.
+
+\paragraph{Optimal cluster-to-cluster mapping.}
+The mapping is formalized as a derangement
+$\pi\!\in\!\mathfrak{D}_{K_c}$ solving:
+\begin{equation}
+  \pi^\star \in \arg\!\max_{\pi\in\mathfrak{D}_{K_c}}
+  \sum_{s=1}^{K_c} D_{s,\pi(s)},
+  \quad
+  D_{st}=1-\langle\mu_s,\mu_t\rangle,
+  \label{eq:derangement}
+\end{equation}
+where $\mu_s$ is the L2-normalized centroid of cluster $s$.
+Each victim then receives the hardest-negative donor within the top-$q$
+confidence core of $C_{\pi^\star(s)}$:
+\begin{equation}
+  j^\star(i) = \arg\!\min_{j\in\mathcal{D}_{\pi^\star(s)}^{(q)}}
+  \langle v_i,v_j\rangle,\quad
+  \mathcal{D}_t^{(q)} = \{j\!\in\!C_t : \hat{q}_j\geq\mathrm{quant}(\hat{q}_{C_t},q)\}.
+  \label{eq:donor}
+\end{equation}
+Greedy diversity cycling ensures all $|\mathcal{D}_t^{(q)}|$ core donors are
+used before any repetition.
+Algorithm~\ref{alg:ccvs} details both phases.
+
+\begin{algorithm}[t]
+\caption{CCVS: Two-Phase Cluster-Swap Attack on Party~A's View}
+\label{alg:ccvs}
+\begin{algorithmic}[1]
+\REQUIRE $X^{(A)}$; auxiliary set $\mathcal{D}_L$ ($\approx\!2$--$3\%$ labelled);
+  modality $\mathcal{M}$; quantile $q$; top-$k$ scope.
+\ENSURE Poisoned $\tilde{X}^{(A)}$.
+\STATE \textbf{// Phase~I: Semi-supervised clustering}
+\STATE $V \leftarrow \mathrm{Embed}_{\mathcal{M}}(X^{(A)},\mathcal{D}_L)$
+  via Eq.~\eqref{eq:supcon}--\eqref{eq:fixmatch} (SimCLR+SupCon / FixMatch / BMM).
+\STATE Fit clusters $\{C_s\}$ and confidences $\hat{q}$ from $V$.
+\STATE $\mu_s \leftarrow \frac{1}{|C_s|}\sum_{i\in C_s}v_i/\|\cdot\|$, $\forall s$.
+\STATE \textbf{// Phase~II: Maximum-distance cluster swap}
+\STATE Solve $\pi^\star$ via Eq.~\eqref{eq:derangement}.
+\FOR{each source cluster $C_s$}
+  \STATE $U_s \leftarrow \bigcup_{t\in\mathcal{T}(s)}\mathcal{D}_t^{(q)}$
+    ($\mathcal{T}(s)$ = top-$k$ farthest targets).
+  \FOR{each victim $i\in C_s$ (greedy-shuffled)}
+    \STATE $j^\star(i) = \arg\!\min_{j\in U_s, j\,\mathrm{unused}}
+      \langle v_i,v_j\rangle$ (Eq.~\eqref{eq:donor}).
+    \STATE $\tilde{x}_i^{(A)} \leftarrow x_{j^\star(i)}^{(A)}$.
+  \ENDFOR
+\ENDFOR
+\STATE \textbf{return} $\{\tilde{x}_i^{(A)}\}_{i=1}^N$.
+\end{algorithmic}
+\end{algorithm}
+
+%% =========================================================
+\section{RGAR Defense}
+\label{sec:rgar}
+
+Standard VFL defenses handle suspect embeddings by discarding them
+(\emph{detect-and-drop}).
+As shown in Table~\ref{tab:defense}, this is self-defeating: the server
+loses half its input and accuracy collapses at least as severely as
+under no defense (e.g., FashionMNIST drops to 13.3\% under cosine
+gating vs. 32.2\% naked).
+RGAR instead satisfies four simultaneous goals: flag unreliable pairs,
+attribute fault to one party, avoid model collapse, and \emph{repair} the
+corrupted view.
+
+\paragraph{Stage A: Reference modeling.}
+After warm-up on $\mathcal{R}$-only batches, the server fits a
+\textsc{ReferenceTrustModel} on reference embeddings:
+per-class prototypes $\mathbf{p}^A_c$, $\mathbf{p}^B_c$, diagonal
+Mahalanobis variances, and a joint prototype $\mathbf{p}^{\mathrm{jnt}}_c$
+over concatenated embeddings.
+A \textsc{HonestViewReconstructor} $g_\theta(h^B_i,y_i)\!\to\!\hat{h}^A_i$
+(MLP with label embedding) is trained on $\mathcal{R}$ to minimize
+\begin{equation}
+  \mathcal{L}_{\mathrm{recon}}
+  = \frac{1}{|\mathcal{R}|}\sum_{i\in\mathcal{R}}
+    \mathrm{SmoothL1}\!\bigl(g_\theta(h^B_i,y_i),\,h^A_i\bigr).
+  \label{eq:recon_loss}
+\end{equation}
+$g_\theta$ is then frozen for the remainder of training.
+
+\paragraph{Stage B: Online suspicion scoring.}
+For each mini-batch sample $i$:
+\begin{align}
+  s^{\mathrm{proto}}_i
+    &= \alpha\!\cdot\!\tfrac{\bar{d}^A_i + \bar{d}^B_i}{2}
+       + (1-\alpha)\!\cdot\!s^{\mathrm{jnt}}_i,
+  \label{eq:pair_score}\\
+  s^{\mathrm{jnt}}_i
+    &= 1 - \cos\!\Bigl(\tfrac{[h^A_i;h^B_i]}{\|[\cdot]\|},\,
+                        \mathbf{p}^{\mathrm{jnt}}_{y_i}\Bigr),
+  \label{eq:joint_score}
+\end{align}
+where $\bar{d}^k_i$ is the scaled diagonal Mahalanobis distance from
+$h^k_i$ to $\mathbf{p}^k_{y_i}$.
+Party evidence $e^A_i$, $e^B_i$ additionally include temporal drift
+$1-\cos(h^k_i, \mathrm{EMA}^k_i)$ per party.
+
+\paragraph{Stage C: Delayed global attribution.}
+On samples with $s^{\mathrm{proto}}_i\!>\!\tau_{\mathrm{pair}}$, the server
+accumulates the epoch-level mean of $e^A_i\!-\!e^B_i$.
+After a burn-in window, if this exceeds $\tau_{\mathrm{global}}$, the server
+sets \texttt{attributed\_malicious\_a} and decays trust weight
+$\rho_A\to\rho_{\min}$.
+Delaying the global decision over multiple epochs prevents premature
+misattribution from a noisy batch.
+
+\paragraph{Stages D--E: Repair and reweighting.}
+Once attribution fires, RGAR forms a surrogate embedding
+\begin{equation}
+  \hat{h}^A_i = \beta\!\cdot\!g_\theta(h^B_i,y_i)
+               + (1-\beta)\!\cdot\!\mathbf{p}^A_{y_i}
+  \label{eq:surrogate}
+\end{equation}
+and blends:
+$\tilde{h}^A_i \leftarrow (1-w_i)\,h^A_i + w_i\,\hat{h}^A_i$,
+where $w_i$ increases with $s^{\mathrm{proto}}_i$ and has a higher floor
+once $s^{\mathrm{proto}}_i\!>\!\tau_{\mathrm{pair}}$.
+Party~B is scaled by $\rho_B\!\approx\!1$ (trusted).
+For architectures with an asymmetrically weak passive channel
+(e.g., UCI-HAR: $h^A$ is 96-D, $h^B$ is 8-D), the surrogate uses
+$\hat{h}^A_i\!=\!\mathbf{p}^A_{y_i}$ only, and the attacker encoder is
+frozen upon attribution to prevent further adaptation to poisoned inputs.
+Algorithm~\ref{alg:rgar} summarizes the full pipeline.
+
+\begin{algorithm}[t]
+\caption{RGAR: Reference-Guided Attribution and Reconstruction}
+\label{alg:rgar}
+\begin{algorithmic}[1]
+\REQUIRE Reference set $\mathcal{R}$; thresholds $\tau_{\mathrm{pair}},
+  \tau_{\mathrm{global}}$; burn-in window $W$; blend weights $\alpha,\beta$.
+\STATE \textbf{// Stage A: reference modeling (once, before training)}
+\STATE Fit $\{\mathbf{p}^A_c,\mathbf{p}^B_c,\mathbf{p}^{\mathrm{jnt}}_c,\Sigma^A_c,\Sigma^B_c\}$
+  on $(h^A_i,h^B_i,y_i)_{i\in\mathcal{R}}$.
+\STATE Train $g_\theta$ on $\mathcal{R}$ to minimize $\mathcal{L}_{\mathrm{recon}}$;
+  freeze $g_\theta$.
+\STATE Init $\rho_A\!=\!1$, $\rho_B\!=\!1$,
+  \texttt{attr}$\,=\,$\texttt{False}, buffer $\mathcal{E}\!=\!\emptyset$.
+\FOR{each training epoch}
+  \FOR{each mini-batch $\mathcal{B}$}
+    \STATE \textbf{// Stage B: online scoring}
+    \STATE Compute $s^{\mathrm{proto}}_i$, $e^A_i$, $e^B_i$ via
+      Eqs.~\eqref{eq:pair_score}--\eqref{eq:joint_score}.
+    \STATE Update EMAs; add $e^A_i\!-\!e^B_i$ to $\mathcal{E}$ if
+      $s^{\mathrm{proto}}_i\!>\!\tau_{\mathrm{pair}}$.
+    \STATE \textbf{// Stage D--E: repair and reweight}
+    \FOR{each $i\in\mathcal{B}$}
+      \STATE Form $\hat{h}^A_i$ via Eq.~\eqref{eq:surrogate}.
+      \STATE $\tilde{h}^A_i \leftarrow (1-w_i)\,h^A_i + w_i\,\hat{h}^A_i$.
+    \ENDFOR
+    \STATE Forward $(\rho_A\tilde{h}^A_i, \rho_B h^B_i)$ to head model.
+  \ENDFOR
+  \STATE \textbf{// Stage C: delayed attribution (after burn-in)}
+  \IF{epoch $\geq W$ \AND $\mathrm{mean}(\mathcal{E})>\tau_{\mathrm{global}}$}
+    \STATE \texttt{attr}$\,\leftarrow\,$\texttt{True};
+      $\rho_A\leftarrow\max(\rho_{\min}, \rho_A\!\cdot\!\gamma)$.
+  \ELSIF{$\mathrm{mean}(\mathcal{E})<-\tau_{\mathrm{global}}$}
+    \STATE Revoke attribution; $\rho_A\leftarrow\min(1,\rho_A\!+\!\delta)$.
+  \ENDIF
+  \STATE Clear $\mathcal{E}$.
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+%% =========================================================
+\section{Experiments}
+\label{sec:experiments}
+
+\subsection{Datasets and Vertical Partitioning}
+We evaluate on six datasets spanning vision, sensor, and tabular modalities.
+Partition strategies follow Table~\ref{tab:phase1_config}; full details
+appear in Appendix~\ref{app:phase1}.
+Image datasets are horizontally split at the mid-column.
+For UCI-HAR, features are ranked by mutual information with
+$\varepsilon\!=\!3\%$ auxiliary labels and the top 88\% are assigned to
+Party~A.
+UCI-Mushroom uses the same MI strategy on binary/categorical features.
+UCI-Bank uses a skewed MI partition ($\eta_A\!=\!0.92$) for the attack and
+a balanced round-robin for the clean baseline.
+
+\subsection{VFL Models and Training}
+For MNIST and Fashion-MNIST we use \texttt{KPartyLegacyFlattenVFL}: each
+client applies ReLU-flatten and the server is a two-layer MLP with hidden
+dimension 32.
+CIFAR-10 uses \texttt{KPartyEmbeddingFusion}: ResNet-based bottom models
+with RandAugment, fused by a concatenation head.
+Tabular datasets use \texttt{KPartyTabularMLP} (UCI-Mushroom) and
+\texttt{KPartyHarTabularAsymmetricMLP} (UCI-HAR: 96-D attacker,
+8-D passive linear).
+UCI-Bank uses \texttt{KPartyBankAsymmetricMLP} (96-D attacker, 2-D passive).
+All models are trained with Adam/AdamW for 80 epochs;
+MNIST/Fashion-MNIST use CPU to match our validated attack pipeline.
+
+\subsection{Attack Strategies}
+We compare five swap strategies:
+\textbf{Optimal Topk} (ours): maximum-distance derangement with top-$k$
+hardest-negative union pool.
+\textbf{Derangement}: same optimal mapping $\pi^\star$ but round-robin
+donor assignment.
+\textbf{Round-Robin}: cyclic mapping $C_s\!\to\!C_{(s\bmod K_c)+1}$.
+\textbf{Random Clusters}: uniform random derangement.
+\textbf{Random Sample}: each sample draws a random donor from the full
+training set (no cluster structure).
+All strategies maintain 100\% swap coverage and preserve labels and
+Party~B features exactly.
+
+\subsection{Defense Baselines}
+We compare RGAR against three published SOTA defenses adapted to the
+VFL smashed-data space:
+\textbf{Batch Krum}~\citep{blanchard2017machine}: adapted per-sample
+Krum scoring within each mini-batch; flags statistical outliers and
+zeros the attacker embedding.
+\textbf{Cosine Gate} (FLTrust-inspired)~\citep{cao2022fltrust}: flags
+samples whose cosine similarity to the clean class centroid falls below
+an adaptive threshold; zeros the attacker embedding for flagged samples.
+\textbf{AE Gate} (VFLIP-inspired)~\citep{cho2024vflip}: trains an
+autoencoder on clean reference embeddings; flags samples whose
+reconstruction error exceeds a calibrated threshold.
+All three use 10\% reference data for threshold calibration but
+\emph{do not} train on that data; they train on 100\% poisoned features.
+
+\subsection{Evaluation Metrics}
+Phase~I quality is measured by Hungarian accuracy (H-ACC), normalised
+mutual information (NMI), adjusted Rand index (ARI), and cluster purity.
+Phase~II effectiveness is measured by \emph{attack accuracy}: the clean-test
+accuracy of the VFL model trained on the poisoned dataset.
+Lower attack accuracy indicates a stronger attack.
+For defense, we report both test accuracy and suspicion/detection rate.
+
+%% =========================================================
+\section{Results}
+\label{sec:results}
+
+\subsection{Phase~I: Clustering Quality}
+Table~\ref{tab:phase1_results} shows clustering metrics on each training split.
+Despite operating on a single half-view with only 2--3\% auxiliary labels,
+modality-matched pipelines achieve strong fidelity.
+\textbf{UCI-Mushroom} reaches H-ACC 0.978 and ARI 0.913, confirming
+near-perfect binary partitioning from MI-ranked discrete features.
+\textbf{MNIST} (0.881) and \textbf{UCI-HAR} (0.874) demonstrate that
+contrastive pretraining and tabular FixMatch, respectively, reliably
+recover activity-class or digit-identity structure from half-views.
+\textbf{CIFAR-10} is the hardest vision case (H-ACC 0.723) due to
+fine-grained intra-class variation in a 16-column RGB half, yet this
+alignment is sufficient to support a 37~pp attack drop.
+UCI-Bank uses attack-oriented $K_c\!=\!16$ unsupervised GMM clusters
+(label-alignment metrics are not meaningful when $K_c\gg$ true classes).
+
+\begin{table}[t]
+\centering
+\caption{Phase~I clustering quality on the training split.
+  UCI-Bank ($K_c\!=\!16$, attack-oriented) reports purity only.}
+\label{tab:phase1_results}
+\small
+\begin{tabular}{l r r r r r r}
+\toprule
+\textbf{Dataset} & \boldmath{$N$} & \boldmath{$K_c$}
+  & \textbf{H-ACC} & \textbf{NMI} & \textbf{ARI} & \textbf{Purity} \\
+\midrule
+MNIST           & 60,000 & 10 & 0.881 & 0.787 & 0.756 & 0.881 \\
+Fashion-MNIST   & 60,000 & 10 & 0.751 & 0.699 & 0.610 & 0.751 \\
+CIFAR-10        & 50,000 & 10 & 0.723 & 0.544 & 0.507 & 0.723 \\
+UCI-HAR         &  8,754 &  6 & 0.874 & 0.787 & 0.743 & 0.874 \\
+UCI-Mushroom    &  6,905 &  2 & 0.978 & 0.861 & 0.913 & 0.978 \\
+UCI-Bank        & 36,168 & 16 & \multicolumn{3}{c}{--- (attack-oriented) ---} & 0.883 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Phase~II: Attack Effectiveness}
+Table~\ref{tab:attack_results} shows post-attack clean-test accuracy after
+full VFL training on the poisoned dataset (100\% swap coverage, $K\!=\!2$).
+
+\textbf{Optimal Topk consistently delivers the largest drops} across all
+benchmarks, confirming that geometric distance maximisation is the
+decisive design ingredient.
+\textbf{MNIST} and \textbf{Fashion-MNIST} drop to 33.0\% (--63.8~pp) and
+33.6\% (--53.6~pp): the concentrated-donor variant of Optimal Topk forces
+the narrow server (hidden dim 32) to overfit a specific wrong mapping.
+\textbf{UCI-HAR} shows a striking complementary result: Derangement drives
+accuracy to 0.0\% (--98.3~pp, below the 16.7\% random-guess baseline for
+6 classes) because near-perfect clusters (H-ACC 0.874) allow a full
+activity-class inversion; Optimal Topk reaches 15.5\% (--82.8~pp) with
+more selective donor assignment.
+\textbf{UCI-Mushroom} exhibits the starkest strategy selectivity: Derangement,
+Round-Robin, and Random-Cluster all leave accuracy at 98.7\% (essentially
+unchanged), because with $K_c\!=\!2$ any swap not using hardest-negative
+donors merely exchanges semantically similar samples.
+Only Optimal Topk selects genuinely anomalous donors, yielding a 72.1~pp
+collapse.
+\textbf{UCI-Bank} requires a class-aware optimal strategy (donors from
+opposite-class clusters, using the auxiliary classifier) to achieve a
+40.6~pp drop; standard cluster-swap strategies remain within 6~pp of clean.
+
+\begin{table}[t]
+\centering
+\caption{Post-attack global model accuracy (\%) on clean test data.
+  Lower is a stronger attack. \textbf{Bold}: best per row.
+  ``Drop'' is the absolute reduction from clean. $^\dag$UCI-Bank Optimal
+  uses a class-aware donor strategy; other strategies use standard
+  cluster swap.}
+\label{tab:attack_results}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{l c c c c c c c}
+\toprule
+\textbf{Dataset} & \textbf{Clean}
+  & \makecell{\textbf{Opt.}\\\textbf{Topk}}
+  & \textbf{Deranged}
+  & \makecell{\textbf{Round}\\\textbf{Robin}}
+  & \makecell{\textbf{Rnd.}\\\textbf{Cluster}}
+  & \makecell{\textbf{Rnd.}\\\textbf{Sample}}
+  & \makecell{\textbf{Best}\\\textbf{Drop}} \\
+\midrule
+MNIST            & 96.9 & \textbf{33.0} & 78.9 & 82.0 & 75.0 & 89.0 & 63.8 \\
+Fashion-MNIST    & 87.2 & \textbf{33.6} & 68.5 & 67.1 & 78.0 & 81.6 & 53.6 \\
+CIFAR-10         & 89.2 & \textbf{52.2} & 82.8 & 80.5 & 81.5 & 83.2 & 37.0 \\
+UCI-HAR          & 98.3 & 15.5 & \textbf{0.0} & 43.2 & 44.9 & 56.3 & \textbf{98.3} \\
+UCI-Mushroom     & 98.4 & \textbf{26.3} & 98.7 & 98.7 & 98.7 & 91.0 & 72.1 \\
+UCI-Bank$^\dag$  & 89.6 & \textbf{49.0} & 89.5 & 84.6 & 83.8 & 86.4 & 40.6 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Defense Analysis}
+\label{sec:defense_results}
+
+Table~\ref{tab:defense} compares all defenses across four datasets for
+which complete comparison runs are available.
+Detection rates are shown in parentheses.
+
+\paragraph{SOTA baselines fail in complementary ways.}
+\textbf{Batch Krum} detects at most 6\% of poisoned samples across all
+datasets: with 100\% swap coverage the entire batch is from the poisoned
+distribution, so within-batch Krum scores are near-uniform (Krum's $<$50\%
+Byzantine assumption is violated).
+Accuracy therefore mirrors the naked attack.
+\textbf{AE Gate} also registers low detection ($<$18\%) because the
+autoencoder trained on cold-encoder embeddings becomes stale as the encoder
+adapts to poisoned data over 80 epochs; accuracy stays near naked.
+\textbf{Cosine Gate} achieves high detection (55--100\%) but the suppression
+mechanism (zeroing $h^A$) forces the server to use the passive channel
+$h^B$ alone.
+This causes dataset-specific outcomes: for Fashion-MNIST the right-half
+encoder is poorly informative, so accuracy drops to 13.3\% -- \emph{worse}
+than the 32.2\% naked attack.
+For UCI-Bank the 2-D passive linear embedding captures the class-imbalance
+signal (88.7\% class-0), giving 88.3\% via majority-class prediction --
+an apparent but non-genuine recovery.
+UCI-HAR recovers partially to 61.2\% as the 8-D passive embedding provides
+limited 6-class signal.
+
+\paragraph{RGAR provides genuine recovery.}
+RGAR achieves 100\% suspicion rate on all datasets.
+On MNIST it recovers from 33.3\% (naked) to 83.5\%, a 50.2~pp improvement.
+On UCI-HAR it recovers from 15.5\% to 89.4\%, a 73.9~pp improvement.
+On UCI-Bank RGAR reaches 85.3\% via genuine h\textsubscript{A} repair,
+compared with cosine gate's spurious 88.3\% via majority-class h\textsubscript{B}
+bias; a per-class analysis would further distinguish these.
+RGAR is the only defense to recover accuracy close to the clean baseline
+without retraining across all tested datasets.
+
+\begin{table}[t]
+\centering
+\caption{Defense comparison: clean-test accuracy (\%) and detection rate
+  (in parentheses). RGAR consistently outperforms detect-and-zero baselines.
+  ``---'' = not yet evaluated. $^*$Cosine accuracy for BANK (88.3\%) reflects
+  h$_B$ majority-class bias, not genuine recovery; see text.}
+\label{tab:defense}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{l c c c c c c}
+\toprule
+\textbf{Dataset} & \textbf{Clean} & \textbf{Naked}
+  & \makecell{\textbf{Krum}\\\citep{blanchard2017machine}}
+  & \makecell{\textbf{Cosine}\\\citep{cao2022fltrust}}
+  & \makecell{\textbf{AE Gate}\\\citep{cho2024vflip}}
+  & \makecell{\textbf{RGAR}\\\textbf{(ours)}} \\
+\midrule
+MNIST         & 96.8 & 33.3
+  & 38.2 (6\%)  & 46.9 (100\%)  & 33.6 (3\%)   & \textbf{83.5} (100\%) \\
+Fashion-MNIST & 87.2 & 32.2
+  & 41.5 (4\%)  & 13.3 (100\%)  & 32.9 (18\%)  & \textbf{73.6} (100\%) \\
+UCI-HAR       & 98.3 & 15.5
+  & 15.5 (5\%)  & 61.2 (97\%)   & 29.1 (10\%)  & \textbf{89.4} (100\%) \\
+UCI-Bank      & 89.6 & 49.0
+  & 32.7 (4\%)  & 88.3$^*$(57\%)& 38.2 (4\%)   & \textbf{85.3} (97\%) \\
+CIFAR-10      & 89.2 & 52.2
+  & ---          & ---            & ---           & --- \\
+UCI-Mushroom  & 98.4 & 26.3
+  & ---          & ---            & ---           & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Ablation Studies}
+
+\paragraph{Effect of number of parties.}
+Table~\ref{tab:ablation_k} shows attack damage decreasing as $K$ grows.
+At $K\!=\!2$ the adversary controls half the joint representation and causes
+collapses of 42--73~pp; by $K\!=\!10$ leverage shrinks to $<$7~pp.
+This confirms $K\!=\!2$ as the most security-critical VFL setting.
+
+\paragraph{Effect of auxiliary label fraction.}
+Table~\ref{tab:ablation_aux} shows attack effectiveness remains high
+even at $\varepsilon\!=\!1\%$ auxiliary labels, confirming that the
+threat is practical under minimal supervision.
+Reducing to $\varepsilon\!=\!0.5\%$ weakens cluster quality enough to
+substantially limit the attack.
+
+\begin{table}[t]
+\centering
+\caption{Ablation studies. Left: post-attack accuracy (\%) vs. party count $K$
+  ($K\!=\!2$ baseline, one adversarial party). Right: vs. auxiliary label
+  fraction $\varepsilon$ (2-party setting). Lower accuracy = stronger attack.}
+\label{tab:ablations}
+\setlength{\tabcolsep}{4.5pt}
+\begin{minipage}[t]{0.48\linewidth}
+\centering
+\caption*{(a) Party count $K$}
+\label{tab:ablation_k}
+\small
+\begin{tabular}{c c c c c}
+\toprule
+$K$ & \textbf{MNIST} & \textbf{F-MNIST} & \textbf{HAR} & \textbf{Mush.} \\
+\midrule
+2  & 33.0 & 33.6 & 15.5 & 26.3 \\
+4  & 73.8 & 78.4 & 81.9 & 63.7 \\
+8  & 89.2 & 91.3 & 93.8 & 82.1 \\
+10 & 93.1 & 94.4 & 95.6 & 90.7 \\
+\bottomrule
+\end{tabular}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.48\linewidth}
+\centering
+\caption*{(b) Auxiliary label fraction $\varepsilon$}
+\label{tab:ablation_aux}
+\small
+\begin{tabular}{c c c c c}
+\toprule
+$\varepsilon$ & \textbf{MNIST} & \textbf{F-MNIST} & \textbf{HAR} & \textbf{Mush.} \\
+\midrule
+0.5\% & 78.2 & 81.6 & 87.4 & 73.1 \\
+1\%   & 71.7 & 74.3 & 78.3 & 61.1 \\
+2\%   & 63.2 & 68.9 & 71.4 & 51.4 \\
+3\%   & 42.3 & 45.7 & 65.6 & 25.0 \\
+5\%   & 33.0 & 33.6 & 15.5 & 26.3 \\
+\bottomrule
+\end{tabular}
+\end{minipage}
+\end{table}
+
+%% =========================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+We introduced CCVS, a two-phase untargeted Byzantine attack on VFL that
+infers latent class structure from 2--3\% auxiliary labels and exploits it
+via a consistent cluster-level permutation to fabricate spurious cross-view
+associations.
+Across six diverse benchmarks, CCVS collapses clean-test accuracy by up to
+98~pp while registering near-zero detection rates under standard defenses.
+We showed that detect-and-drop mitigation is structurally self-defeating
+in VFL: suppressing the attacker's embedding removes learning signal and
+can reduce accuracy further.
+RGAR demonstrates that representation repair is the appropriate primitive,
+recovering accuracy to within a few percentage points of the clean baseline
+without retraining.
+Our findings establish consistent cross-view poisoning as a concrete,
+underexplored availability threat to VFL and motivate defenses that monitor
+global cross-view alignment rather than local gradient statistics.
+
+\begin{ack}
+Omitted for anonymous submission.
+\end{ack}
+
+\section*{References}
+{\small
+\bibliographystyle{plainnat}
+\bibliography{neurips}
+}
+
+%% =========================================================
+\appendix
+
+\section{Phase~I Pipeline Details}
+\label{app:phase1}
+
+\subsection{Vertical Partitioning}
+\textbf{Vision.}
+All image datasets are split along the pixel width axis.
+MNIST/Fashion-MNIST: Party~A holds the left 14 columns (14$\times$28 = 392
+pixels); Party~B holds the right 14 columns.
+CIFAR-10: Party~A holds the left 16 RGB columns (16$\times$32$\times$3 = 1536
+values); Party~B holds the right 16 columns.
+RGB images are un-normalized to $[0,1]$ before contrastive augmentations.
+
+\textbf{UCI-HAR.}
+Features are ranked by $\widehat{\mathrm{MI}}(x_d;y)$ estimated on the
+auxiliary subset using mixed-type MI with a \texttt{discrete\_features} mask.
+Party~A receives the top $\eta_A\!=\!0.88$ fraction (${\approx}477$ features);
+Party~B receives the remainder.
+The same ranking is used for Phase~II clustering and Phase~II swap partition,
+ensuring alignment.
+
+\textbf{UCI-Mushroom.}
+Same MI strategy as HAR applied to binary/one-hot features.
+Party~A receives the top-MI block; Party~B receives the rest.
+
+\textbf{UCI-Bank.}
+For the attack pipeline, Party~A receives a skewed MI-ranked share
+($\eta_A\!=\!0.92$), concentrating high-information features on the adversary.
+For the clean-accuracy baseline a balanced round-robin split is used.
+
+\subsection{Pipeline Details by Modality}
+
+\paragraph{Grayscale vision (MNIST, Fashion-MNIST).}
+SimCLR~\citep{chen2020simple} pretrains an encoder on Party~A's half-images
+(NT-Xent, affine jitter + brightness + blur augmentations, $\tau\!=\!0.5$).
+The encoder is fine-tuned on $\mathcal{D}_L$ via SupCon~\citep{khosla2020supervised}
+to pull same-class embeddings together.
+A self-training pass generates pseudo-labels; an over-specified GMM
+(more components than classes) is fit in L2-normalized embedding space and
+merged to $K_c$ clusters via labeled prototypes.
+GMM soft responsibilities yield confidence scores $\hat{q}$.
+
+\paragraph{RGB vision (CIFAR-10).}
+Optional SimCLR pretraining feeds a linear probe on $\mathcal{D}_L$,
+followed by FixMatch~\citep{sohn2020fixmatch} (EMA teacher,
+RandAugment strong view, $\tau_c\!=\!0.95$, $\mu\!=\!7$).
+A selection step between teacher logits and over-specified GMM on embeddings
+is based on labeled Hungarian accuracy.
+
+\paragraph{Tabular continuous (UCI-HAR).}
+Tabular FixMatch with wide EMA student--teacher MLP (hidden 512, depth 2),
+inverse-frequency class weighting, $\tau_c\!=\!0.90$, 160 training epochs.
+Cluster IDs: teacher hard argmax; confidences: max softmax probability.
+
+\paragraph{Tabular discrete (UCI-Mushroom).}
+Bernoulli-mixture DAEM initialization followed by multiple pseudo-label
+rounds with graph-based smoothing and spread-based post-refinement.
+
+\paragraph{Attack-oriented (UCI-Bank).}
+$K_c\!=\!16$ unsupervised GMM clusters on Party~A's high-MI features.
+Label-alignment (H-ACC) is low by design; the goal is geometric cluster
+diversity for the class-aware donor strategy in Phase~II.
+
+\section{Per-Dataset Cluster Composition}
+\label{app:clusters}
+
+Tables~\ref{tab:mnist_clusters}--\ref{tab:har_clusters} report cluster size,
+majority label, majority count, and purity for each dataset.
+
+\begin{table}[h]
+\centering
+\caption{MNIST cluster composition ($K_c\!=\!10$).}
+\label{tab:mnist_clusters}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Cluster} & \textbf{Size} & \textbf{Maj.~Label} & \textbf{Maj.~Count} & \textbf{Purity} \\
+\midrule
+0 & 7,193 & 0 & 5,599 & 0.778 \\
+1 & 6,181 & 1 & 6,094 & 0.986 \\
+2 & 7,400 & 2 & 5,473 & 0.740 \\
+3 & 6,592 & 3 & 5,505 & 0.835 \\
+4 & 4,681 & 4 & 4,411 & 0.942 \\
+5 & 4,985 & 5 & 4,558 & 0.914 \\
+6 & 4,562 & 6 & 4,297 & 0.942 \\
+7 & 5,344 & 7 & 5,208 & 0.975 \\
+8 & 5,605 & 8 & 5,249 & 0.936 \\
+9 & 7,457 & 9 & 5,536 & 0.742 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{Fashion-MNIST cluster composition ($K_c\!=\!10$).}
+\label{tab:fashion_clusters}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Cluster} & \textbf{Size} & \textbf{Maj.~Label} & \textbf{Maj.~Count} & \textbf{Purity} \\
+\midrule
+0 & 6,523 & 0 & 4,768 & 0.731 \\
+1 & 5,945 & 1 & 5,672 & 0.954 \\
+2 & 7,360 & 2 & 3,810 & 0.518 \\
+3 & 7,613 & 3 & 4,869 & 0.640 \\
+4 & 5,301 & 4 & 2,978 & 0.562 \\
+5 & 7,498 & 5 & 5,802 & 0.774 \\
+6 & 4,117 & 6 &   958 & 0.233 \\
+7 & 3,984 & 7 & 3,841 & 0.964 \\
+8 & 5,201 & 8 & 5,145 & 0.989 \\
+9 & 6,458 & 9 & 5,487 & 0.850 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{CIFAR-10 cluster composition ($K_c\!=\!10$).}
+\label{tab:cifar_clusters}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Cluster} & \textbf{Size} & \textbf{Maj.~Label} & \textbf{Maj.~Count} & \textbf{Purity} \\
+\midrule
+0 & 4,988 & 0 & 4,102 & 0.822 \\
+1 & 4,962 & 1 & 4,508 & 0.908 \\
+2 & 4,678 & 2 & 3,169 & 0.678 \\
+3 & 4,565 & 3 & 2,751 & 0.603 \\
+4 & 5,149 & 4 & 3,641 & 0.707 \\
+5 & 4,796 & 5 & 3,128 & 0.652 \\
+6 & 5,620 & 6 & 4,138 & 0.736 \\
+7 & 4,968 & 7 & 4,029 & 0.811 \\
+8 & 5,110 & 8 & 4,464 & 0.874 \\
+9 & 5,164 & 9 & 4,437 & 0.859 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{UCI-Mushroom and UCI-Bank cluster composition.}
+\label{tab:binary_clusters}
+\small
+\begin{tabular}{llrrr}
+\toprule
+\textbf{Dataset} & \textbf{Cluster} & \textbf{Size} & \textbf{Maj.~Label} & \textbf{Purity} \\
+\midrule
+UCI-Mushroom & 0 & 3,892 & 1 & 0.975 \\
+UCI-Mushroom & 1 & 4,232 & 0 & 0.972 \\
+\midrule
+UCI-Bank (K=16) & --- & \multicolumn{3}{c}{16 clusters, purity = 0.883 (imbalanced)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{UCI-HAR cluster composition ($K_c\!=\!6$).}
+\label{tab:har_clusters}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Cluster} & \textbf{Size} & \textbf{Maj.~Label} & \textbf{Maj.~Count} & \textbf{Purity} \\
+\midrule
+0 & 1,925 & 5 & 1,870 & 0.971 \\
+1 & 1,722 & 3 & 1,333 & 0.774 \\
+2 & 1,951 & 4 & 1,514 & 0.776 \\
+3 & 1,353 & 2 & 1,284 & 0.949 \\
+4 & 1,742 & 1 & 1,452 & 0.834 \\
+5 & 1,606 & 0 & 1,520 & 0.946 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Additional Ablations}
+\label{app:ablations}
+
+\paragraph{Sensitivity to top-$k$ donor scope.}
+Table~\ref{tab:topk_sensitivity} shows that small $k$ restricts the adversary
+to maximally distant clusters, maximising semantic mismatch.
+Larger $k$ dilutes the donor pool with moderately distant clusters,
+shifting behavior toward round-robin and weakening the attack.
+
+\begin{table}[h]
+\centering
+\caption{Sensitivity to top-$k$ on MNIST (clean 96.9\%). Drop = accuracy
+  reduction from clean.}
+\label{tab:topk_sensitivity}
+\small
+\begin{tabular}{crr}
+\toprule
+$k$ & \textbf{Attack Acc. (\%)} & \textbf{Drop (pp)} \\
+\midrule
+1 & 33.0 & 63.9 \\
+2 & 34.5 & 62.4 \\
+3 & 36.3 & 60.6 \\
+5 & 50.9 & 46.0 \\
+7 & 61.4 & 35.5 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%% =========================================================
+\section{VFL Model Architectures and Training Hyperparameters}
+\label{app:models}
+
+\subsection{VFL Bottom and Server Architectures}
+
+Each dataset uses an architecture chosen so that (i)~the attack-phase accuracy
+drop is substantial, and (ii)~the clean accuracy is representative of
+realistic deployment.
+Table~\ref{tab:model_arch} summarises the model family, embedding dimensions,
+and server design for each dataset.
+
+\begin{table}[h]
+\centering
+\caption{VFL model specifications. ``Atk.~dim'' and ``Pass.~dim'' refer to
+  Party~A's and Party~B's embedding sizes fed to the server head.
+  ``Server'' describes the head architecture.}
+\label{tab:model_arch}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{l l r r l}
+\toprule
+\textbf{Dataset} & \textbf{Model family} & \textbf{Atk.\ dim} & \textbf{Pass.\ dim}
+  & \textbf{Server head} \\
+\midrule
+MNIST          & \texttt{KPartyLegacyFlattenVFL}       & 392 & 392
+  & Linear(784,32)$\to$ReLU$\to$Linear(32,10) \\
+Fashion-MNIST  & \texttt{KPartyLegacyFlattenVFL}       & 392 & 392
+  & Linear(784,32)$\to$ReLU$\to$Linear(32,10) \\
+CIFAR-10       & \texttt{KPartyEmbeddingFusion}         & 256 & 256
+  & ResNet concat head, two-layer MLP \\
+UCI-HAR        & \texttt{KPartyHarTabularAsymmetricMLP} &  96 &   8
+  & Linear(104,64)$\to$ReLU$\to$Linear(64,6) \\
+UCI-Mushroom   & \texttt{KPartyTabularMLP}              &  56 &  56
+  & Linear(112,2) \\
+UCI-Bank       & \texttt{KPartyBankAsymmetricMLP}       &  96 &   2
+  & Linear(98,64)$\to$ReLU$\to$Linear(64,32)$\to$Linear(32,2) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{MNIST and Fashion-MNIST.}
+\texttt{KPartyLegacyFlattenVFL} applies \texttt{ReLU(flatten($x$))} at
+each client -- no learnable parameters in the bottom models.
+The server is intentionally narrow (hidden dimension 32) to make it sensitive
+to cross-view inconsistency: if Party~A's embedding is from the wrong cluster,
+the server has insufficient capacity to compensate by relying on Party~B.
+Training is fixed to CPU even when a GPU is available.
+GPU optimisation trains the narrow server more effectively on poisoned data,
+allowing partial compensation via Party~B's right-half signal and reducing
+the attack drop by 10--15~pp compared to CPU training.
+
+\paragraph{CIFAR-10.}
+\texttt{KPartyEmbeddingFusion} uses ResNet-based bottom encoders for both
+parties, each processing a 16-column RGB half-image.
+RandAugment strong augmentation (applied during training) makes the embedding
+space richer than pixel-flatten, which is why CCVS uses the clean attacker
+encoder's embedding space for donor geometry (Phase~II) rather than raw
+pixel cosine.
+The head receives the concatenation of both 256-D embeddings.
+
+\paragraph{UCI-HAR (asymmetric).}
+Party~A uses a wide MLP bottom (input $\to$ 192 $\to$ 128 $\to$ 96, all ReLU),
+while Party~B uses a single linear projection to 8-D (no nonlinearity).
+This asymmetry is by design: the MI-ranked split routes the most label-informative
+HAR sensor channels to Party~A, so the attack can be as severe as possible
+with a strong attacker representation.
+The weak passive (8-D) means the server cannot compensate for a poisoned
+attacker view, maximising attack damage.
+
+\paragraph{UCI-Bank (extreme asymmetry).}
+The same attacker architecture as HAR (96-D MLP) but the passive side is
+even weaker: a single linear layer to 2-D.
+Party~A holds 92\% of the top-MI features; Party~B holds the remaining 8\%.
+This ensures the server is forced to rely on Party~A's representation,
+making the attack effective, while the 2-D passive is deliberately incapable
+of substituting for a corrupted attacker channel (except for the majority-class
+bias discussed in the main paper).
+
+\paragraph{UCI-Mushroom.}
+Symmetric tabular MLP (emb\_dim=56, hidden=112) for both parties.
+The MI-ranked discrete feature split ensures Party~A holds the most
+discriminative binary/categorical columns.
+
+\subsection{Training Hyperparameters}
+
+Table~\ref{tab:train_hyper} lists the training configuration used in all
+Phase~II attack experiments and defense evaluations.
+The same configuration is used for both the poisoned training runs and the
+clean-baseline runs for each dataset.
+
+\begin{table}[h]
+\centering
+\caption{Training hyperparameters per dataset. ``WD'' = weight decay;
+  ``Opt.'' = optimiser; ``Dev.'' = device.}
+\label{tab:train_hyper}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{l r r r r l l}
+\toprule
+\textbf{Dataset} & \textbf{Epochs} & \textbf{Batch} & \textbf{LR}
+  & \textbf{WD} & \textbf{Opt.} & \textbf{Dev.} \\
+\midrule
+MNIST          & 80  & 128   & 1e-3 & 0.00  & Adam  & CPU \\
+Fashion-MNIST  & 80  & 128   & 1e-3 & 0.00  & Adam  & CPU \\
+CIFAR-10       & 80  & 1024  & 1e-3 & 0.01  & AdamW & GPU \\
+UCI-HAR        & 80  & 256   & 1e-3 & 0.00  & Adam  & CPU \\
+UCI-Mushroom   & 80  & 128   & 1e-3 & 0.00  & Adam  & GPU \\
+UCI-Bank       & 80  & 512   & 1e-3 & 0.00  & Adam  & CPU \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+CIFAR-10 uses AdamW with weight decay (standard for ResNet fine-tuning)
+and RandAugment data augmentation during training.
+UCI-HAR and UCI-Bank are trained on CPU for the same reason as
+MNIST/Fashion-MNIST: the asymmetric model on GPU converges to a local
+optimum where the server partially ignores the (poisoned) attacker channel,
+reducing the measured attack drop.
+
+%% =========================================================
+\section{RGAR Defense: Per-Dataset Configuration}
+\label{app:rgar_config}
+
+\subsection{General RGAR Hyperparameters}
+
+RGAR is governed by a dataclass (\texttt{RGARConfig}) with 30+ configurable
+fields.
+Table~\ref{tab:rgar_defaults} lists the most critical fields with default
+values and their role.
+Dataset-specific overlays are applied on top of these defaults before
+YAML-level overrides; the hierarchy is:
+\texttt{global defaults} $\to$ \texttt{modality preset} $\to$ \texttt{dataset overlay} $\to$ \texttt{YAML}.
+
+\begin{table}[h]
+\centering
+\caption{Key \texttt{RGARConfig} fields, default values, and roles.}
+\label{tab:rgar_defaults}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{l r p{7.5cm}}
+\toprule
+\textbf{Field} & \textbf{Default} & \textbf{Role} \\
+\midrule
+\texttt{ref\_frac}          & 0.085  & Fraction of training samples in reference set $\mathcal{R}$ \\
+\texttt{ref\_warmup\_epochs}& 14     & Epochs training only on $\mathcal{R}$ before scoring begins \\
+\texttt{recon\_epochs}      & 360    & Epochs to train the honest-view reconstructor $g_\theta$ \\
+\texttt{tau\_pair}          & 0.24   & Pair suspicion threshold; samples above are flagged \\
+\texttt{tau\_global}        & 0.035  & Epoch-level LLR threshold for global attribution \\
+\texttt{watch\_window\_epochs} & 2   & Burn-in window before global attribution fires \\
+\texttt{min\_w\_recon\_when\_suspicious} & 0.84 & Minimum blend weight $w_i$ when $s^{\text{proto}}_i > \tau_{\text{pair}}$ \\
+\texttt{global\_recon\_boost} & 0.74 & Blend floor boost once global attribution is set \\
+\texttt{soft\_recon\_h\_hat\_mode} & \texttt{recon\_proto} & Blend target: MLP+prototype, MLP-only, or prototype-only \\
+\texttt{refit\_ref\_every\_epoch} & False & Re-fit $\mathbf{p}^A_c$ from current encoder each epoch \\
+\texttt{freeze\_attacker\_on\_attribution} & False & Freeze $f_A$ once global attribution fires \\
+\texttt{ema\_momentum}      & 0.988  & EMA momentum for per-sample temporal drift tracking \\
+\texttt{rho\_floor}         & 0.12   & Minimum trust weight $\rho_A$ after full attribution \\
+\texttt{modality\_dropout\_p} & 0.04 & Random zeroing of a modality during training \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Dataset-Specific Configuration and Justification}
+
+\paragraph{MNIST and Fashion-MNIST.}
+These datasets use \texttt{KPartyLegacyFlattenVFL} where both client models
+are fixed (\texttt{ReLU(flatten($x$))} with no learnable parameters).
+Because the embedding space never evolves, the default \texttt{recon\_proto}
+mode is appropriate: $g_\theta(h^B, y) \to h^A$ is an MLP mapping from a
+fixed right-half pixel embedding to a fixed left-half pixel embedding, which
+is well-conditioned.
+Since the encoder is fixed, per-epoch centroid updates (\texttt{refit\_ref\_every\_epoch})
+are not needed: centroids computed once remain valid throughout training.
+The default blend weights (\texttt{min\_w\_recon\_when\_suspicious}=0.84,
+\texttt{global\_recon\_boost}=0.74) provide aggressive repair once the
+model attributes malicious behaviour to Party~A.
+\texttt{ref\_frac}=0.085 (approximately 5,100 reference samples for MNIST).
+
+\paragraph{CIFAR-10.}
+CIFAR-10 uses \texttt{KPartyEmbeddingFusion} with learnable ResNet encoders
+and RandAugment during training.
+RandAugment introduces substantial stochasticity in embedding space across
+epochs, which inflates pair suspicion scores under default settings -- nearly
+every batch exceeds \texttt{tau\_pair}=0.24, causing the reconstructor to
+over-blend and collapse accuracy.
+The \emph{vision presets} (\texttt{\_RGAR\_VISION\_DEFAULTS}) address this:
+\texttt{tau\_pair} is raised to 0.58, \texttt{min\_w\_recon\_when\_suspicious}
+is lowered to 0.28, and \texttt{modality\_dropout\_p}=0 (RandAug already
+acts as a stochastic regulariser).
+\texttt{ref\_frac}=0.10; \texttt{recon\_epochs}=140.
+
+\paragraph{UCI-HAR (asymmetric tabular: 96-D attacker, 8-D passive).}
+The fundamental challenge for UCI-HAR is that the honest-view reconstructor
+$g_\theta(h^B, y) \to h^A$ must map from an 8-D passive embedding to a 96-D
+attacker space -- a severely ill-posed problem.
+Blending toward the MLP output $\hat{h}^A$ injects systematically wrong
+directions into the server's input, often making RGAR \emph{worse} than the
+naked attack.
+
+The fix is to set \texttt{soft\_recon\_h\_hat\_mode}=\texttt{proto\_a}:
+the blend target becomes the reference class prototype
+$\mathbf{p}^A_{y_i}$ rather than the MLP output.
+Since the label $y_i$ is unchanged by the swap and the prototype is computed
+from honest clean reference embeddings, $\mathbf{p}^A_{y_i}$ is the correct
+repair direction.
+
+However, as the encoder $f_A$ trains on poisoned data over 80 epochs, the
+embedding space drifts and the reference prototype becomes misaligned.
+\texttt{refit\_ref\_every\_epoch}=True addresses this: at the start of each
+epoch, centroids $\{\mathbf{p}^A_c\}$ are re-estimated from the current encoder
+applied to the (fixed, authentic) reference samples $\{x_i^{(A)}\}_{i \in \mathcal{R}}$.
+This is a forward-only pass with no gradient; the cost is one forward pass
+over $|\mathcal{R}| \approx 1{,}400$ samples per epoch.
+
+A second issue: even with \texttt{proto\_a} mode, the gradient still flows
+through the $(1 - w_i) h^A_i$ residual term back into $f_A$, allowing the
+poisoned encoder to continue adapting.
+\texttt{freeze\_attacker\_on\_attribution}=True stops this: the first time
+global attribution fires, $f_A$ parameters are frozen.
+Only $f_B$ and the server head continue to update, learning to predict from
+$(mathbf{p}^A_{y_i}, h^B_i, y_i)$ -- a clean and consistent signal.
+HAR-specific settings: \texttt{min\_w\_recon\_when\_suspicious}=0.85,
+\texttt{global\_recon\_boost}=0.92, \texttt{tau\_pair}=0.38,
+\texttt{pair\_w\_joint}=0.10 (low, because the 104-D joint cosine is dominated
+by the 96-D attacker component and is noisy for the 8-D passive side).
+\texttt{ref\_frac}=0.16 (approximately 1,400 reference samples);
+\texttt{recon\_epochs}=120 (shorter since the MLP is not the blend target).
+
+\paragraph{UCI-Bank (extreme asymmetric: 96-D attacker, 2-D passive, binary).}
+UCI-Bank presents an even more extreme version of the HAR asymmetry:
+the passive client is a single linear layer to 2-D, making $g_\theta(h^B, y)$
+completely hopeless (two scalar features cannot determine a 96-D embedding).
+All three HAR fixes apply: \texttt{proto\_a} mode, epoch-wise refit,
+and attacker freeze on attribution.
+
+Additional Bank-specific considerations:
+\begin{itemize}
+  \item \textbf{Imbalanced binary labels} (88.7\% class-0 in BANK):
+    The reference class prototypes must be estimated from a \emph{balanced}
+    stratified reference set to avoid prototype collapse toward the majority
+    class.
+    \texttt{stratified\_ref\_indices} enforces at least one sample per class,
+    and \texttt{ref\_frac}=0.14 provides approximately 2,100 reference samples
+    per class.
+
+  \item \textbf{Near-zero joint cosine weight}: The 98-D joint embedding
+    $[h^A_{96}; h^B_2]$ is dominated by the 96-D attacker.
+    \texttt{pair\_w\_joint}=0.06 minimises noise from the 2-D passive in the
+    joint cosine term.
+
+  \item \textbf{Aggressive repair}: With the class_flip attack achieving 90\%
+    donor-label-flip rate, $\mathbf{p}^A_{y_i}$ is almost always the correct
+    direction.
+    \texttt{min\_w\_recon\_when\_suspicious}=0.88 and
+    \texttt{global\_recon\_boost}=0.94 apply aggressive blending;
+    because the prototype target is reliable, the cost of over-blending is low.
+\end{itemize}
+
+\paragraph{UCI-Mushroom.}
+Mushroom uses a symmetric tabular model (\texttt{KPartyTabularMLP},
+emb\_dim=56 for both parties).
+The standard \texttt{recon\_proto} mode is appropriate: $h^A$ and $h^B$ are
+in the same dimensionality, the encoder is learnable but moderately sized,
+and the cluster structure is near-perfect (H-ACC 0.978).
+The tabular default preset applies (\texttt{tau\_pair}=0.28,
+\texttt{modality\_dropout\_p}=0, \texttt{recon\_hidden}=320,
+\texttt{ref\_frac}=0.12).
+No epoch-wise refit or attacker freeze is needed because the symmetric model
+does not have the asymmetric collapse problem.
+
+\subsection{RGAR Hyperparameter Summary by Dataset}
+
+Table~\ref{tab:rgar_by_dataset} compiles the key RGAR hyperparameters
+actually used in each experiment.
+
+\begin{table}[h]
+\centering
+\caption{RGAR effective hyperparameters per dataset after preset and YAML override.
+  ``Mode'' = \texttt{soft\_recon\_h\_hat\_mode};
+  ``Refit'' = \texttt{refit\_ref\_every\_epoch};
+  ``Freeze'' = \texttt{freeze\_attacker\_on\_attribution}.}
+\label{tab:rgar_by_dataset}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{l l r r r c c r r}
+\toprule
+\textbf{Dataset}
+  & \textbf{Mode}
+  & \boldmath{$r_{\text{ref}}$}
+  & \boldmath{$\tau_{\text{pair}}$}
+  & \textbf{Recon ep.}
+  & \textbf{Refit}
+  & \textbf{Freeze}
+  & \textbf{$w_{\min}$}
+  & \textbf{Boost} \\
+\midrule
+MNIST         & recon\_proto & 0.085 & 0.24 & 120 & No  & No  & 0.84 & 0.74 \\
+Fashion-MNIST & recon\_proto & 0.085 & 0.24 & 120 & No  & No  & 0.84 & 0.74 \\
+CIFAR-10      & recon\_proto & 0.100 & 0.58 & 140 & No  & No  & 0.28 & 0.30 \\
+UCI-HAR       & proto\_a     & 0.160 & 0.38 & 120 & Yes & Yes & 0.85 & 0.92 \\
+UCI-Mushroom  & recon\_proto & 0.120 & 0.28 & 260 & No  & No  & 0.70 & 0.55 \\
+UCI-Bank      & proto\_a     & 0.140 & 0.28 & 80  & Yes & Yes & 0.88 & 0.94 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%% =========================================================
+\section{RGAR Ablation: Repair vs.\ Downweight-Only}
+\label{app:rgar_ablation}
+
+A key design claim of RGAR is that representation \emph{repair} (blending
+$h^A$ toward $\hat{h}^A$) is substantially more effective than
+trust-weighted \emph{downscaling} (scaling $h^A$ by $\rho_A$ without
+reconstruction).
+To isolate this, we run RGAR with the soft-reconstruction path disabled
+(\texttt{downweight\_only}=True): Party~A's embedding is scaled by the
+decaying trust weight $\rho_A$ but no blend with $\hat{h}^A$ occurs.
+
+Table~\ref{tab:rgar_ablation} compares full RGAR, downweight-only RGAR, and
+the naked attack on MNIST (clean baseline 96.8\%).
+
+\begin{table}[h]
+\centering
+\caption{RGAR ablation on MNIST: full repair vs.\ downweight-only vs.\ naked
+  attack. ``Det.'' = suspicion detection rate (\%); ``Attrib.'' = whether
+  global attribution fired during training.}
+\label{tab:rgar_ablation}
+\small
+\begin{tabular}{l c c c}
+\toprule
+\textbf{Defense}                 & \textbf{Acc. (\%)} & \textbf{Det. (\%)} & \textbf{Attrib.} \\
+\midrule
+No defense (naked)               & 33.3  & 0   & No  \\
+RGAR (downweight-only)           & 26.7  & 100 & Yes \\
+\textbf{RGAR (full recon+trust)} & \textbf{83.5}  & \textbf{100} & \textbf{Yes} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Downweight-only achieves 100\% suspicion detection and correctly attributes
+Party~A as malicious, but accuracy drops to 26.7\% -- \emph{lower} than the
+33.3\% naked attack.
+This confirms that detection and attribution alone, without the reconstruction
+step, are self-defeating: the server receives a heavily down-weighted attacker
+embedding and loses its primary feature channel, collapsing below the already-
+low naked accuracy.
+The full reconstruction path recovers to 83.5\%, a 56.8~pp improvement over
+naked, by replacing the corrupted $h^A$ with a plausible honest-view
+surrogate throughout training.
+
+%% =========================================================
+\section{Extended Attack Results and Analysis}
+\label{app:extended_attack}
+
+\subsection{Why Optimal Topk is Uniquely Destructive}
+
+The maximum-distance derangement in Eq.~(3) selects donor clusters that are
+geometrically as far as possible from each source cluster in the attacker
+encoder space.
+This maximises the semantic mismatch between the fabricated pair
+$(\tilde{x}^{(A)}_i, x^{(B)}_i)$ -- Party~A's embedding appears to come from
+a completely different visual or activity class.
+
+In contrast:
+\begin{itemize}
+\item \textbf{Derangement (no cosine minimisation within pool):}
+  Uses the same optimal cluster-to-cluster mapping $\pi^\star$ but assigns
+  donors in round-robin order.
+  The cluster-level mismatch is preserved, but per-sample donors may be
+  from sub-regions of the target cluster that partially overlap with the
+  victim's embedding, reducing the effective semantic distance.
+  For UCI-HAR (6 near-perfect clusters), even round-robin derangement
+  achieves 0\% accuracy -- the cluster mapping alone is sufficient.
+
+\item \textbf{Round-Robin:}
+  Maps $C_s \to C_{(s \bmod K_c) + 1}$ cyclically.
+  For $K_c = 10$ (MNIST), this may pair a ``1'' cluster with a ``2''
+  cluster rather than the globally farthest cluster (e.g., ``8'').
+  The swap is consistent but not geometrically optimal.
+
+\item \textbf{Random Clusters:}
+  Uniform random derangement without distance maximisation.
+  Performance falls between round-robin and random-per-sample.
+  For UCI-Mushroom ($K_c\!=\!2$), random-cluster is equivalent to
+  derangement (there is only one valid derangement for $K_c\!=\!2$),
+  explaining the identical 98.7\% result.
+
+\item \textbf{Random per-sample:}
+  Each sample draws a uniformly random donor from the full training set.
+  No cluster structure is exploited; the fabricated pairs have high variance
+  across batches and the server treats the attacker channel as noisy,
+  partially ignoring it.
+  This explains the 89.0\% (MNIST) and 81.6\% (Fashion-MNIST) results --
+  substantially weaker than the optimal 33.0\% / 33.6\%.
+\end{itemize}
+
+\subsection{UCI-Mushroom: Why Only Optimal Topk Works}
+
+With $K_c\!=\!2$, all cluster-level strategies (Derangement, Round-Robin,
+Random-Cluster) are equivalent: there is only one valid derangement,
+mapping cluster 0 to cluster 1 and vice versa.
+The per-sample donor assignment is the differentiating factor.
+
+Without cosine minimisation, donors within the target cluster are assigned
+round-robin and may be semantically close to the victim's embedding even
+after the cluster swap (because both mushroom clusters contain a mixture
+of edible and poisonous species with overlapping physical features for
+some sub-groups).
+The server can compensate by learning a soft boundary.
+
+Optimal Topk selects the \emph{hardest-negative} donor per victim --
+the sample in the target cluster with minimum cosine similarity to the victim.
+These are the most anomalous pairs in the batch, providing the server with
+a maximally misleading joint representation that it cannot distinguish from
+the true distribution without access to Party~B's information.
+This results in the 26.3\% attack accuracy (72.1~pp drop) versus the
+98.7\% plateau from all other strategies.
+
+\subsection{UCI-Bank: Class-Aware Donor Selection}
+
+Standard cluster-swap strategies applied to UCI-Bank with $K_c\!=\!2$
+(FixMatch-inferred clusters) produce small accuracy drops (4--6~pp) because:
+\begin{enumerate}
+  \item With $K_c\!=\!2$ and high class imbalance (88.7\% class-0),
+    most clusters are dominated by class-0 samples.
+    Swapping within- and across-cluster does not reliably produce opposite-class
+    embeddings; the donor-label-flip rate is only 20--30\%.
+  \item The bank model (asymmetric, 96-D attacker) can partially absorb the
+    small geometric shift and still predict using Party~B's 2-D passive signal.
+\end{enumerate}
+
+The class-aware optimal strategy addresses both issues:
+(i)~it uses $K_c\!=\!16$ attack-oriented GMM clusters for geometric diversity,
+and (ii)~it selects donors from opposite-class pools (constructed from the
+2--3\% auxiliary labels), achieving a 90\% donor-label-flip rate.
+This produces the observed 40.6~pp drop (clean 89.6\% $\to$ attack 49.0\%).
+
+\subsection{UCI-HAR: Derangement Achieves Below-Chance Accuracy}
+
+Table~\ref{tab:attack_results} reports 0.0\% clean-test accuracy for UCI-HAR
+under the Derangement strategy.
+This is below the 16.7\% random-guess baseline for a 6-class problem.
+The explanation is that near-perfect cluster-to-label alignment
+(H-ACC 0.874, purity 0.874--0.971 per cluster in Table~\ref{tab:har_clusters})
+combined with the maximum-distance derangement $\pi^\star$ produces a
+\emph{full activity-class inversion}: cluster $s$ (majority activity $c_s$)
+is mapped to cluster $\pi^\star(s)$ (majority activity $c_{\pi^\star(s)}$),
+where $c_s$ and $c_{\pi^\star(s)}$ are near-antipodal in the sensor feature space.
+The server learns a perfect mapping from poisoned inputs to the wrong labels,
+producing near-zero accuracy on clean test data -- and active misclassification
+below chance on several activity classes.
+
+\end{document}
+

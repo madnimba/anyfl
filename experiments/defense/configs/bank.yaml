@@ -1,0 +1,68 @@
+# UCI-BANK: cluster-swap (class_flip) + RGAR defense.
+#
+# Attack context (experiments/attack/runs/UCI-BANK/k2/20260503T080004Z/):
+#   clean acc   ~89.58%
+#   class_flip  ~49.03%  (drop ~40.55 pp)   donor_label_flip ~0.90
+#
+# Why BANK needs a dedicated design:
+#   * KPartyBankAsymmetricMLP: dim(h_A)=96 (wide MLP), dim(h_B)=2 (linear) — extreme asymmetry.
+#   * g(h_B,y)->h_A is completely hopeless from a 2-D passive; must use class prototypes.
+#   * class_flip guarantees ~90% of swapped rows get an opposite-class attacker embedding;
+#     p_A[y] (clean class prototype, y unchanged by swap) is the exact right repair target.
+#   * Passive client is deliberately weak (attack design) → server cannot ignore attacker;
+#     RGAR must aggressively repair h_A toward p_A[y] once attribution fires.
+#
+# Runner: .venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/bank.yaml
+dataset: UCI-BANK
+k_clients: 2
+seed: 0
+data:
+  data_dir: ./data
+  tabular_train_fraction: 0.85
+train:
+  epochs: 80
+  batch_size: 512
+  lr: 0.001
+  weight_decay: 0.0
+  device: cpu
+  optimizer: adam
+
+# Must match attack config exactly (partition + model)
+bank_attack_split: skewed_attacker
+bank_attack_share: 0.92
+bank_attack_model: asymmetric
+
+stealth_oracle_labels: true
+
+swap:
+  ignore_cluster_conf: true
+  strategies:
+    - class_flip
+    - optimal_topk
+    - derangement
+    - random_clusters
+    - random_per_sample
+  attacker_client_idx: 0
+  attacker_probe: false     # partition pins attacker to client 0
+  topk: 8
+  core_q: 0.35
+  cluster_dir: ./clusters
+  protect_test: true
+  use_signature_cache: false
+  class_flip_aux_frac: 0.05
+
+defense:
+  run_naked_poisoned: true
+  rgar_full: true
+  rgar_downweight: false
+  use_rgar_tabular_defaults: true   # applies tabular preset + BANK overlay (defense_config.py)
+  # BANK overlay already sets: soft_recon_h_hat_mode=proto_a, refit_ref_every_epoch=True,
+  # freeze_attacker_on_attribution=True, min_w_recon_when_suspicious=0.88, global_recon_boost=0.94.
+  # Keys below override the overlay last (YAML wins).
+  rgar:
+    ref_frac: 0.14          # ~4200 rows; stratified → ~2100/class despite 88.7% imbalance
+    ref_warmup_epochs: 14
+    recon_epochs: 80        # MLP not used as blend target in proto_a mode; keep short
+    recon_lr: 1.2e-3
+    recon_batch_size: 128
+    recon_weight_decay: 2.0e-5

@@ -23,6 +23,10 @@ class RGARConfig:
     recon_weight_decay: float = 2e-5
     recon_batch_size: int = 64
     recon_hidden: int = 512
+    # Label embedding width in ``HonestViewReconstructor`` (h_B is often low-dim on tabular VFL).
+    recon_label_emb_dim: int = 48
+    # If >0, recon training mixes in ``1 - cosine(pred, h_A)`` for directional alignment (helps wide h_A).
+    recon_cosine_weight: float = 0.0
     # Hard suspicion (counted as adversarial signal / detection)
     tau_pair: float = 0.24
     tau_global: float = 0.035
@@ -38,8 +42,13 @@ class RGARConfig:
     modality_dropout_p: float = 0.04
     blend_with_recon: float = 1.0
     eps: float = 1e-5
-    # Per-sample mitigation (blueprint): blend Party-A embedding toward recon(h_B,y) from suspicion
+    # Per-sample mitigation (blueprint): blend Party-A embedding toward ``h_hat`` from suspicion.
+    # ``h_hat`` source is controlled by ``soft_recon_h_hat_mode`` (see ``prepare_server_input``).
     use_soft_recon: bool = True
+    # ``recon_proto`` (default): ``h_hat = (1-α)·g(h_B,y) + α·p_A[y]``. ``recon_mlp``: ``h_hat = g(h_B,y)``.
+    # ``proto_a``: ``h_hat = p_A[y]`` only — use when ``dim(h_B) << dim(h_A)`` (e.g. asymmetric HAR):
+    # ``g(h_B,y)`` is ill-posed and often hurts accuracy vs naked training.
+    soft_recon_h_hat_mode: str = "recon_proto"
     tau_recon_lo: float = 0.06
     tau_recon_hi: float = 0.40
     suspicion_recon_strength: float = 1.0
@@ -47,6 +56,16 @@ class RGARConfig:
     min_w_recon_when_suspicious: float = 0.84
     global_recon_boost: float = 0.74
     proto_snap_weight: float = 0.34
+    # --- HAR-specific options (default False → no behaviour change on MNIST/FashionMNIST/CIFAR/Mushroom) ---
+    # Re-fit ReferenceTrustModel from clean ref rows every training epoch so prototypes stay
+    # aligned with the evolving encoder. Only needed when ``soft_recon_h_hat_mode="proto_a"``
+    # runs for many epochs; adds one cheap forward pass per epoch over the ref set.
+    refit_ref_every_epoch: bool = False
+    # Freeze the attacker client encoder the FIRST time global attribution fires; only the
+    # passive encoder + server continue updating. Prevents the poisoned encoder from minimising
+    # CE through the residual (1-w)*h_A gradient. Only safe to enable with proto_a or prototype
+    # snap (the repair target must not depend on the frozen encoder's output changing).
+    freeze_attacker_on_attribution: bool = False
 
 
 class ReferenceTrustModel(nn.Module):
@@ -121,10 +140,21 @@ class ReferenceTrustModel(nn.Module):
 class HonestViewReconstructor(nn.Module):
     """MLP: (h_b, label) -> h_a surrogate. Two hidden layers for a sharper map under label swap."""
 
-    def __init__(self, h_b_dim: int, h_a_dim: int, num_classes: int, hidden: int = 256):
+    def __init__(
+        self,
+        h_b_dim: int,
+        h_a_dim: int,
+        num_classes: int,
+        hidden: int = 256,
+        *,
+        label_emb_dim: int = 48,
+    ):
         super().__init__()
-        self.emb = nn.Embedding(num_classes, 48)
-        d_in = h_b_dim + 48
+        le = int(label_emb_dim)
+        if le < 8:
+            raise ValueError(f"label_emb_dim must be >= 8, got {le}")
+        self.emb = nn.Embedding(int(num_classes), le)
+        d_in = int(h_b_dim) + le
         self.net = nn.Sequential(
             nn.Linear(d_in, hidden),
             nn.ReLU(inplace=True),
@@ -152,7 +182,13 @@ class RGAREngine(nn.Module):
         self.num_classes = num_classes
         self.train_size = train_size
         self.ref_model = ReferenceTrustModel(h_a_dim, h_b_dim, num_classes, eps=cfg.eps)
-        self.reconstructor = HonestViewReconstructor(h_b_dim, h_a_dim, num_classes, hidden=cfg.recon_hidden)
+        self.reconstructor = HonestViewReconstructor(
+            h_b_dim,
+            h_a_dim,
+            num_classes,
+            hidden=cfg.recon_hidden,
+            label_emb_dim=int(cfg.recon_label_emb_dim),
+        )
         self.register_buffer("ema_h_a", torch.zeros(train_size, h_a_dim))
         self.register_buffer("ema_h_b", torch.zeros(train_size, h_b_dim))
         self.register_buffer("ema_seen", torch.zeros(train_size, dtype=torch.bool))
@@ -267,7 +303,15 @@ class RGAREngine(nn.Module):
         rho_b = float(self.rho_b.item())
 
         h_mlp = self.reconstructor(hb, y)
-        if int(self.ref_model.ready.item()) != 0 and cfg.proto_snap_weight > 0:
+        ready = int(self.ref_model.ready.item()) != 0
+        mode = str(cfg.soft_recon_h_hat_mode).strip().lower()
+        if mode not in ("recon_proto", "recon_mlp", "proto_a"):
+            mode = "recon_proto"
+        if ready and mode == "proto_a":
+            h_hat = self.ref_model.p_a[y]
+        elif ready and mode == "recon_mlp":
+            h_hat = h_mlp
+        elif ready and cfg.proto_snap_weight > 0.0:
             p_snap = self.ref_model.p_a[y]
             h_hat = (1.0 - cfg.proto_snap_weight) * h_mlp + cfg.proto_snap_weight * p_snap
         else:
@@ -280,9 +324,13 @@ class RGAREngine(nn.Module):
             susp = s_pair > cfg.tau_pair
             w = torch.where(susp, torch.maximum(w, torch.full_like(w, cfg.min_w_recon_when_suspicious)), w)
             if self.attributed_malicious_a:
-                w = torch.maximum(
-                    w, torch.full_like(w, cfg.global_recon_boost * (1.0 - rho_a))
-                )
+                # proto_a target is reliable (class prototype from clean ref) → use boost directly.
+                # Other modes (recon_mlp, recon_proto) scale by (1-rho_a) since the MLP can err.
+                if mode == "proto_a":
+                    boost = cfg.global_recon_boost
+                else:
+                    boost = cfg.global_recon_boost * (1.0 - rho_a)
+                w = torch.maximum(w, torch.full_like(w, boost))
             ha = (1.0 - w.unsqueeze(1)) * ha + w.unsqueeze(1) * h_hat
             hb = rho_b * hb
         elif self.attributed_malicious_a and rho_a < 0.999:
@@ -337,6 +385,7 @@ class RGAREngine(nn.Module):
             "rho_a": float(self.rho_a.item()),
             "rho_b": float(self.rho_b.item()),
             "epochs": self.epochs_since_start,
+            "soft_recon_h_hat_mode": str(self.cfg.soft_recon_h_hat_mode),
         }
 
 
@@ -384,8 +433,10 @@ def train_reconstructor(
     lr: float,
     weight_decay: float = 2e-5,
     batch_size: int = 64,
+    *,
+    recon_cosine_weight: float = 0.0,
 ) -> None:
-    """Minibatch Smooth-L1 + cosine LR; shuffles ref set each epoch for a tighter g(h_B,y)."""
+    """Minibatch Smooth-L1 (+ optional cosine alignment) + cosine LR; shuffles ref set each epoch."""
     recon.train().to(device)
     idx_cpu = ref_idx.detach().cpu()
     n = int(idx_cpu.numel())
@@ -409,7 +460,15 @@ def train_reconstructor(
                 ha_tgt = client_a(xa).detach()
             opt.zero_grad()
             pred = recon(hb, yb)
-            loss = F.smooth_l1_loss(pred, ha_tgt, beta=0.08)
+            sl = F.smooth_l1_loss(pred, ha_tgt, beta=0.08)
+            wcos = float(recon_cosine_weight)
+            if wcos > 0.0:
+                pn = F.normalize(pred, dim=1, eps=1e-8)
+                tn = F.normalize(ha_tgt, dim=1, eps=1e-8)
+                cos_loss = (1.0 - (pn * tn).sum(dim=1)).mean()
+                loss = (1.0 - wcos) * sl + wcos * cos_loss
+            else:
+                loss = sl
             loss.backward()
             opt.step()
         sched.step()

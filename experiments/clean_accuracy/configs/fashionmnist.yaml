@@ -4,7 +4,8 @@ seed: 0
 data:
   data_dir: ./data
 train:
-  epochs: 25
+  epochs: 80
   batch_size: 128
   lr: 0.001
+  weight_decay: 0.0
 
