@@ -134,7 +134,11 @@ def train_rgar_tabular_mlp(
     bs = int(train_cfg.batch_size)
 
     ref_idx = stratified_ref_indices(y_tr.cpu(), float(rgar_cfg.ref_frac), int(seed))
-    XA_use = protect_reference_in_swapped(XA_c, XA_s, ref_idx)
+    XA_use = protect_reference_in_swapped(
+        XA_c, XA_s, ref_idx,
+        corrupt_frac=float(getattr(rgar_cfg, "corrupt_ref_frac", 0.0)),
+        seed=int(seed),
+    )
 
     if train_cfg.optimizer == "adamw":
         opt = torch.optim.AdamW(
@@ -156,7 +160,7 @@ def train_rgar_tabular_mlp(
         for s in range(0, len(perm), bs):
             e = min(len(perm), s + bs)
             b = perm[s:e].long()
-            xa = XA_c[b].to(dev)
+            xa = XA_use[b].to(dev)
             xb = XB[b].to(dev)
             y = y_tr[b].to(dev)
             opt.zero_grad(set_to_none=True)
@@ -173,7 +177,7 @@ def train_rgar_tabular_mlp(
         for s in range(0, len(ref_idx), bs):
             e = min(len(ref_idx), s + bs)
             b = ref_idx[s:e].long()
-            xa = XA_c[b].to(dev)
+            xa = XA_use[b].to(dev)
             xb = XB[b].to(dev)
             ha_chunks.append(client_a(xa))
             hb_chunks.append(client_b(xb))
@@ -192,7 +196,7 @@ def train_rgar_tabular_mlp(
         engine.reconstructor,
         client_a,
         client_b,
-        XA_c.cpu(),
+        XA_use.cpu(),
         XB.cpu(),
         y_tr.cpu(),
         ref_idx.cpu(),
@@ -228,7 +232,7 @@ def train_rgar_tabular_mlp(
                 for _s in range(0, len(ref_idx), bs):
                     _e = min(len(ref_idx), _s + bs)
                     _b = ref_idx[_s:_e].long()
-                    _ha_ch.append(client_a(XA_c[_b].to(dev)))
+                    _ha_ch.append(client_a(XA_use[_b].to(dev)))
                     _hb_ch.append(client_b(XB[_b].to(dev)))
                     _yr_ch.append(y_tr[_b].to(dev))
             engine.ref_model.fit_from_tensors(
@@ -291,6 +295,7 @@ def train_rgar_tabular_mlp(
 
     meta = engine.export_state_dict_meta()
     meta["ref_frac"] = float(rgar_cfg.ref_frac)
+    meta["corrupt_ref_frac"] = float(getattr(rgar_cfg, "corrupt_ref_frac", 0.0))
     meta["ref_n"] = int(ref_idx.numel())
     meta["downweight_only"] = bool(downweight_only)
     meta["attacker_frozen"] = bool(_attacker_frozen)

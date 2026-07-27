@@ -619,6 +619,25 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Optional subset of swap strategies (default: optimal_topk)",
     )
     p.add_argument(
+        "--r-ref",
+        type=float,
+        default=None,
+        help=(
+            "Override RGAR reference fraction r_ref (defense.rgar.ref_frac). "
+            "Omit to use the value from the YAML / dataset preset."
+        ),
+    )
+    p.add_argument(
+        "--corrupt-ref-frac",
+        type=float,
+        default=None,
+        help=(
+            "Fraction of the reference set R left silently poisoned before Stage A "
+            "prototype fitting and reconstructor training. Default 0.0 = perfectly "
+            "clean reference, the assumption all submitted numbers used."
+        ),
+    )
+    p.add_argument(
         "--results-jsonl",
         type=str,
         default=None,
@@ -645,6 +664,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = p.parse_args(argv)
 
     bundle = load_defense_experiment_bundle(args.config)
+    _rgar_over = {}
+    if args.r_ref is not None:
+        _rgar_over["ref_frac"] = float(args.r_ref)
+    if args.corrupt_ref_frac is not None:
+        _rgar_over["corrupt_ref_frac"] = float(args.corrupt_ref_frac)
+    if _rgar_over:
+        # YAML/preset keys are merged first, so CLI overrides win (same order as
+        # rgar_config_from_defense_block applies defense.rgar:).
+        bundle = DefenseExperimentBundle(
+            attack=bundle.attack,
+            defense=dc_replace(
+                bundle.defense, rgar={**dict(bundle.defense.rgar), **_rgar_over}
+            ),
+        )
     if args.seed is not None:
         bundle = DefenseExperimentBundle(
             attack=dc_replace(bundle.attack, train_seed=int(args.seed)),

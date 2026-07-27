@@ -128,7 +128,11 @@ def train_rgar_embedding_fusion(
     bs = int(train_cfg.batch_size)
 
     ref_idx = stratified_ref_indices(y_tr.cpu(), float(rgar_cfg.ref_frac), int(seed))
-    XA_use = protect_reference_in_swapped(XA_c, XA_s, ref_idx)
+    XA_use = protect_reference_in_swapped(
+        XA_c, XA_s, ref_idx,
+        corrupt_frac=float(getattr(rgar_cfg, "corrupt_ref_frac", 0.0)),
+        seed=int(seed),
+    )
 
     if train_cfg.optimizer == "adamw":
         opt = torch.optim.AdamW(
@@ -150,7 +154,7 @@ def train_rgar_embedding_fusion(
         for s in range(0, len(perm), bs):
             e = min(len(perm), s + bs)
             b = perm[s:e].long()
-            xa = XA_c[b].to(dev)
+            xa = XA_use[b].to(dev)
             xb = XB[b].to(dev)
             xa, xb = _maybe_augment_cifar_width_parts(xa, xb, train_cfg)
             y = y_tr[b].to(dev)
@@ -168,7 +172,7 @@ def train_rgar_embedding_fusion(
         for s in range(0, len(ref_idx), bs):
             e = min(len(ref_idx), s + bs)
             b = ref_idx[s:e].long()
-            xa = XA_c[b].to(dev)
+            xa = XA_use[b].to(dev)
             xb = XB[b].to(dev)
             ha_chunks.append(client_a(xa))
             hb_chunks.append(client_b(xb))
@@ -193,7 +197,7 @@ def train_rgar_embedding_fusion(
         engine.reconstructor,
         client_a,
         client_b,
-        XA_c.cpu(),
+        XA_use.cpu(),
         XB.cpu(),
         y_tr.cpu(),
         ref_idx.cpu(),
@@ -256,6 +260,7 @@ def train_rgar_embedding_fusion(
 
     meta = engine.export_state_dict_meta()
     meta["ref_frac"] = float(rgar_cfg.ref_frac)
+    meta["corrupt_ref_frac"] = float(getattr(rgar_cfg, "corrupt_ref_frac", 0.0))
     meta["ref_n"] = int(ref_idx.numel())
     meta["downweight_only"] = bool(downweight_only)
     ss = max(1, int(stats["seen_samples"]))

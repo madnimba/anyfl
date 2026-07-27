@@ -17,6 +17,12 @@ import torch.nn.functional as F
 class RGARConfig:
     # More reference rows → better prototypes & surrogate g(h_B,y) (default was 0.03).
     ref_frac: float = 0.085
+    # Fraction of the reference set R that is silently left poisoned, i.e. the
+    # defender *believes* those rows are clean but they are not. 0.0 (default) is
+    # the assumption every submitted number was produced under: a perfectly clean
+    # reference. Raising it tests how gracefully RGAR degrades when that
+    # assumption is violated -- the reference-set sensitivity the AC asked for.
+    corrupt_ref_frac: float = 0.0
     ref_warmup_epochs: int = 14
     recon_epochs: int = 360
     recon_lr: float = 1.4e-3
@@ -414,9 +420,33 @@ def protect_reference_in_swapped(
     XA_clean: torch.Tensor,
     XA_swapped: torch.Tensor,
     ref_idx: torch.Tensor,
+    *,
+    corrupt_frac: float = 0.0,
+    seed: int = 0,
 ) -> torch.Tensor:
+    """Restore the reference rows to their clean view.
+
+    With ``corrupt_frac > 0``, that fraction of R is deliberately left poisoned:
+    the defender still treats those rows as trusted reference data, so the
+    corruption flows into the Stage A prototypes and the reconstructor. Returns
+    the attacker-side tensor the defender will actually train on.
+
+    ``corrupt_frac=0.0`` (default) restores all of R and is exactly the previous
+    behaviour.
+    """
     out = XA_swapped.clone()
-    out[ref_idx] = XA_clean[ref_idx]
+    keep = ref_idx
+    cf = float(corrupt_frac)
+    if cf > 0.0:
+        if not 0.0 <= cf <= 1.0:
+            raise ValueError(f"corrupt_frac must be in [0, 1], got {cf}")
+        n_ref = int(ref_idx.numel())
+        n_bad = int(round(cf * n_ref))
+        if n_bad > 0:
+            g = torch.Generator().manual_seed(int(seed) * 7919 + 104729)
+            perm = torch.randperm(n_ref, generator=g)
+            keep = ref_idx[perm[n_bad:]]  # the rest stay poisoned
+    out[keep] = XA_clean[keep]
     return out
 
 
