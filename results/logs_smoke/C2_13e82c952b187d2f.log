@@ -1,7 +1,0 @@
-
-===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/fashionmnist.yaml --strategy optimal_topk --seed 1 --concentrated-swap auto --run-tag C2-fashionmnist-conc --job-id 13e82c952b187d2f --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14_smoke.jsonl --smoke =====
-[DEFENSE] dataset=Fashion-MNIST k=2 (attack+RGAR pipeline)
-[DEFENSE] clean baseline acc=81.77%
-[DEFENSE] FASHIONMNIST: concentrated swap ENABLED (matches scripts/run_attack.py; defense numbers will differ from previously reported values)
-[DEF] strat=optimal_topk       naked_acc=32.22% (drop_vs_clean=49.55pp) rgar_acc=74.56% (gap_vs_clean= 7.21pp, +42.34pp vs naked)
-[OK] Wrote defense run to: experiments/defense/runs/FASHIONMNIST/k2/C2-fashionmnist-conc

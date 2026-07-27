@@ -1,0 +1,5 @@
+[DEFENSE] dataset=MNIST k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=96.48%
+[DEFENSE] MNIST: concentrated swap ENABLED (matches scripts/run_attack.py; defense numbers will differ from previously reported values)
+[DEF] strat=optimal_topk       naked_acc=31.65% (drop_vs_clean=64.83pp) rgar_acc=83.65% (gap_vs_clean=12.83pp, +52.00pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/MNIST/k2/CHECK2-mnist-conc
