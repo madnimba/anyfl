@@ -181,7 +181,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                    help="Physical GPU index offered to jobs whose config wants CUDA (e.g. 0).")
     p.add_argument("--gpu-slots", type=int, default=2,
                    help="Max concurrent GPU jobs (CIFAR-10 takes all slots). Default 2.")
-    p.add_argument("--tiers", type=str, default="1,2,3,4")
+    p.add_argument("--tiers", type=str, default="0,1,2,3,4")
     p.add_argument("--groups", type=str, default=None, help="Comma-separated group filter, e.g. A,C")
     p.add_argument("--smoke", action="store_true",
                    help="Run every job at --epochs 1 to catch config/path/OOM errors fast.")

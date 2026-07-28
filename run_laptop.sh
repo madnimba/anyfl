@@ -24,7 +24,8 @@ cd "$(dirname "$0")"
 PY=.venv/bin/python
 WORKERS="${WORKERS:-4}"
 GPU="${GPU:-0}"
-GPU_SLOTS="${GPU_SLOTS:-2}"
+GPU_SLOTS="${GPU_SLOTS:-1}"   # 1, not 2: two concurrent RGAR jobs faulted the
+                              # 4060 with Xid 31 (MMU fault) -> Xid 154 reboot
 
 echo "=============================================================="
 echo " LAPTOP QUEUE  --  groups A + C + C2"

@@ -687,6 +687,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Override train.epochs. Omit for real runs.",
     )
     p.add_argument(
+        "--swap-coverage",
+        type=float,
+        default=None,
+        help="Override swap.swap_coverage. 0.0 = poison nothing (RGAR on clean data).",
+    )
+    p.add_argument(
         "--rgar-recon-mode",
         type=str,
         default=None,
@@ -807,6 +813,13 @@ def main(argv: Optional[List[str]] = None) -> int:
                 bundle.attack,
                 train=dc_replace(bundle.attack.train, epochs=int(_epochs)),
             ),
+            defense=bundle.defense,
+        )
+    if args.swap_coverage is not None:
+        bundle = DefenseExperimentBundle(
+            attack=dc_replace(bundle.attack,
+                              swap=dc_replace(bundle.attack.swap,
+                                              swap_coverage=float(args.swap_coverage))),
             defense=bundle.defense,
         )
     if args.rgar_recon_mode is not None:

@@ -173,8 +173,11 @@ def build() -> List[Dict[str, Any]]:
     # ── Group C (tier 1, laptop): RGAR, 3 seeds ──────────────────────────────
     for ds in ["mnist", "fashionmnist", "ucihar", "bank", "mushroom", "cifar10"]:
         for sd in (SEEDS_C if ds not in ("mushroom", "cifar10") else [1]):
+            # MNIST / Fashion-MNIST rgar_full are the long GPU jobs that faulted
+            # the 8 GB 4060 (Xid 31 -> 154). They run on the A5500's 24 GB card.
+            _m = "a5500" if ds in ("mnist", "fashionmnist") else "laptop"
             jobs.append(job(
-                tier=1, group="C", machine="laptop", dataset=ds, runner=RD,
+                tier=1, group="C", machine=_m, dataset=ds, runner=RD,
                 label=f"C/{ds}/seed{sd}",
                 args=["--config", DATASETS[ds]["defense"],
                       "--strategy", *DEFENSE_HEADLINE.get(ds, ["optimal_topk"]),
@@ -189,7 +192,7 @@ def build() -> List[Dict[str, Any]]:
     # which to report can be made from data. Existing runs are untouched.
     for ds in ["mnist", "fashionmnist"]:
         jobs.append(job(
-            tier=1, group="C2", machine="laptop", dataset=ds, runner=RD,
+            tier=1, group="C2", machine="a5500", dataset=ds, runner=RD,
             label=f"C2/{ds}/concentrated",
             args=["--config", DATASETS[ds]["defense"],
                   "--strategy", "optimal_topk", "--seed", "1",
@@ -272,6 +275,21 @@ def build() -> List[Dict[str, Any]]:
             label=f"D/{ds}/baselines",
             args=["--dataset", DATASETS[ds]["name"], "--seed", "1",
                   "--run-tag", f"D-{ds}-baselines"],
+        ))
+
+    # ── Group R (tier 0): RGAR on CLEAN, UNATTACKED data ─────────────────────
+    # swap_coverage=0 selects no victims at all, so this is the defense running
+    # against data it should leave untouched. The experiment does not exist
+    # anywhere in the paper and is the first thing a reviewer asks of a defense:
+    # Fashion-MNIST RGAR measures 14.88% against a 77.94% no-defense baseline, so
+    # we need to know whether RGAR destroys clean accuracy irrespective of attack.
+    for ds in ["mnist", "fashionmnist", "ucihar", "bank"]:
+        jobs.append(job(
+            tier=0, group="R", machine="laptop", dataset=ds, runner=RD,
+            label=f"R/{ds}/rgar_on_clean",
+            args=["--config", DATASETS[ds]["defense"], "--strategy", "optimal_topk",
+                  "--seed", "1", "--swap-coverage", "0.0",
+                  "--run-tag", f"R-{ds}-clean"],
         ))
 
     # ── Group I (tier 1, laptop): party-count ablation, Table 11 ─────────────
