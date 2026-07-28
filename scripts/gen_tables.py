@@ -83,6 +83,15 @@ def config_key(r: Dict[str, Any]) -> str:
     cfg = dict(r.get("config") or {})
     for volatile in ("seed", "train_seed", "run_name"):
         cfg.pop(volatile, None)
+    # The clean baseline is trained once, before any swap.strategies loop, and
+    # does not depend on which strategies/topk/coverage were requested for the
+    # (separate) poisoned run in the same invocation. Without this, the exact
+    # same clean model shows up under 6+ different "configs" per dataset --
+    # group A requests strategies=[optimal_topk], E overrides swap_coverage,
+    # H requests strategies=[random_noise] -- fragmenting every dataset's clean
+    # accuracy into single-row slivers and making it vanish from every table.
+    if r.get("condition") == "clean":
+        cfg.pop("swap", None)
     extra = r.get("extra") or {}
     sm = extra.get("swap_meta") or {}
     rm = extra.get("rgar_meta") or {}
@@ -146,11 +155,40 @@ def collect(rows: List[Dict[str, Any]], keyfn) -> Dict[Any, List[float]]:
                 bits.append(f"r{rm['ref_frac']}")
             if rm.get("corrupt_ref_frac"):
                 bits.append(f"corrupt{rm['corrupt_ref_frac']}")
-            lbl = "/".join(str(b) for b in bits)
+            # The descriptive prefix is for a human scanning --summary; the
+            # appended cfgkey fragment is load-bearing. Two genuinely different
+            # configs (e.g. group A's k=2 MNIST run and group I's k=8 party-
+            # ablation run) can produce the IDENTICAL descriptive label (both
+            # "attack/cuda/conc" -- k_clients isn't one of the descriptive
+            # bits), and without the suffix the second silently overwrote the
+            # first in `out[nk] = vals` -- not a missing cell, a WRONG one
+            # (MNIST attack showed the k=8 ablation's 96.21% as if it were the
+            # headline optimal_topk result). The suffix guarantees one entry
+            # per distinct config, so best() actually sees every variant.
+            lbl = "/".join(str(b) for b in bits) + f"#{ck[:6]}"
             POOLING_SPLITS.append(f"{k!r} split -> [{lbl}] n={len(vals)}")
             nk = (k + (lbl,)) if isinstance(k, tuple) else (k, lbl)
             out[nk] = vals
     return out
+
+
+def best(buckets: Dict[Any, List[float]], key: Any) -> List[float]:
+    """Look up ``key`` in a collect()-produced dict, tolerating splits.
+
+    collect() never averages across differing configs, but when it splits one
+    display key into variants (key + (label,)) a plain buckets[key] lookup then
+    finds nothing -- even the dominant, correct variant vanishes from the table
+    (e.g. MNIST no-defense: 14 genuine group-C seeds hidden behind a 1-row
+    concentrated-swap outlier that split off under the same (dataset,
+    condition) key). Falls back to the most populous variant; the split itself
+    is still visible in --summary's "CELLS SPLIT" section for inspection.
+    """
+    if key in buckets:
+        return buckets[key]
+    base = key if isinstance(key, tuple) else (key,)
+    variants = [v for k, v in buckets.items()
+                if isinstance(k, tuple) and len(k) == len(base) + 1 and k[:len(base)] == base]
+    return max(variants, key=len) if variants else []
 
 
 def manifest_job_ids(manifest: str = "experiments/manifest.jsonl") -> Set[str]:
@@ -304,15 +342,16 @@ def table_attack(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
            "  variant per dataset: " + ", ".join(f"{pretty(d)}={sel[d]}" for d in DATASET_ORDER if d in sel),
            f"  {'dataset':<16}{'clean':>22}{'attack':>22}{'drop pp':>10}"]
     for ds in DATASET_ORDER:
-        if not clean.get(ds) and not atk.get(ds):
+        c_vals, a_vals = best(clean, ds), best(atk, ds)
+        if not c_vals and not a_vals:
             continue
-        cm, _, _ = agg(clean.get(ds, []))
-        am, _, _ = agg(atk.get(ds, []))
-        d = (cm - am) * 100 if (clean.get(ds) and atk.get(ds)) else float("nan")
-        tex.append(f"{pretty(ds)} & {fmt(clean.get(ds, []))} & {fmt(atk.get(ds, []))} & "
+        cm, _, _ = agg(c_vals)
+        am, _, _ = agg(a_vals)
+        d = (cm - am) * 100 if (c_vals and a_vals) else float("nan")
+        tex.append(f"{pretty(ds)} & {fmt(c_vals)} & {fmt(a_vals)} & "
                    + ("--" if d != d else f"{d:.1f}") + r" \\")
-        txt.append(f"  {pretty(ds):<16}{fmt_txt(clean.get(ds, [])):>22}"
-                   f"{fmt_txt(atk.get(ds, [])):>22}" + ("       --" if d != d else f"{d:9.2f}"))
+        txt.append(f"  {pretty(ds):<16}{fmt_txt(c_vals):>22}"
+                   f"{fmt_txt(a_vals):>22}" + ("       --" if d != d else f"{d:9.2f}"))
     tex += [r"\bottomrule\end{tabular}\end{table}"]
     return "\n".join(tex), "\n".join(txt)
 
@@ -345,11 +384,12 @@ def table_defense(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
            f"  {'dataset':<16}{'clean':>22}{'no defense':>22}{'RGAR':>22}{'detect':>10}"]
     for ds in DATASET_ORDER:
         keys = [(ds, c) for c in ("clean", "naked", "rgar_full")]
-        if not any(buckets.get(k) for k in keys):
+        vals = [best(buckets, k) for k in keys]
+        if not any(vals):
             continue
-        tex.append(f"{pretty(ds)} & " + " & ".join(fmt(buckets.get(k, [])) for k in keys)
+        tex.append(f"{pretty(ds)} & " + " & ".join(fmt(v) for v in vals)
                    + " & " + (fmt(det.get(ds, []), scale=1.0) if det.get(ds) else "--") + r" \\")
-        txt.append(f"  {pretty(ds):<16}" + "".join(f"{fmt_txt(buckets.get(k, [])):>22}" for k in keys)
+        txt.append(f"  {pretty(ds):<16}" + "".join(f"{fmt_txt(v):>22}" for v in vals)
                    + (f"{agg(det[ds])[0]:9.1f}" if det.get(ds) else "        --"))
     tex += [r"\bottomrule\end{tabular}\end{table}"]
     return "\n".join(tex), "\n".join(txt)
@@ -373,12 +413,12 @@ def table_coverage(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
     txt = ["COVERAGE  (Optimal Topk accuracy % by swap coverage)",
            f"  {'dataset':<16}" + "".join(f"{int(c*100):>10}%" for c in order)]
     for ds in DATASET_ORDER:
-        if not any(cells.get((ds, c)) for c in order):
+        row_vals = [best(cells, (ds, c)) for c in order]
+        if not any(row_vals):
             continue
-        tex.append(f"{pretty(ds)} & " + " & ".join(fmt(cells.get((ds, c), [])) for c in order) + r" \\")
+        tex.append(f"{pretty(ds)} & " + " & ".join(fmt(v) for v in row_vals) + r" \\")
         txt.append(f"  {pretty(ds):<16}" + "".join(
-            (f"{agg(cells[(ds,c)])[0]*100:10.2f} " if cells.get((ds, c)) else f"{'--':>10} ")
-            for c in order))
+            (f"{agg(v)[0]*100:10.2f} " if v else f"{'--':>10} ") for v in row_vals))
     tex += [r"\bottomrule\end{tabular}\end{table}"]
     return "\n".join(tex), "\n".join(txt)
 
@@ -447,12 +487,12 @@ def table_strategies(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
     txt = ["STRATEGIES  (attack accuracy %)",
            f"  {'dataset':<16}" + "".join(f"{s[:13]:>15}" for s in order)]
     for ds in DATASET_ORDER:
-        if not any(cells.get((ds, s)) for s in order):
+        row_vals = [best(cells, (ds, s)) for s in order]
+        if not any(row_vals):
             continue
-        tex.append(f"{pretty(ds)} & " + " & ".join(fmt(cells.get((ds, s), [])) for s in order) + r" \\")
+        tex.append(f"{pretty(ds)} & " + " & ".join(fmt(v) for v in row_vals) + r" \\")
         txt.append(f"  {pretty(ds):<16}" + "".join(
-            (f"{agg(cells[(ds,s)])[0]*100:14.2f} " if cells.get((ds, s)) else f"{'--':>14} ")
-            for s in order))
+            (f"{agg(v)[0]*100:14.2f} " if v else f"{'--':>14} ") for v in row_vals))
     tex += [r"\bottomrule\end{tabular}\end{table}"]
     return "\n".join(tex), "\n".join(txt)
 
@@ -481,11 +521,12 @@ def _table_sweep(rows, *, path, title, label, header, condition="attack", fmt_ke
            header + " & " + " & ".join(fmt_key(v) for v in order) + r" \\ \midrule"]
     txt = [f"{title.upper()}", f"  {'dataset':<16}" + "".join(f"{fmt_key(v):>12}" for v in order)]
     for ds in DATASET_ORDER:
-        if not any(cells.get((ds, v)) for v in order):
+        row_vals = [best(cells, (ds, v)) for v in order]
+        if not any(row_vals):
             continue
-        tex.append(f"{pretty(ds)} & " + " & ".join(fmt(cells.get((ds, v), [])) for v in order) + r" \\")
+        tex.append(f"{pretty(ds)} & " + " & ".join(fmt(v) for v in row_vals) + r" \\")
         txt.append(f"  {pretty(ds):<16}" + "".join(
-            (f"{agg(cells[(ds,v)])[0]*100:11.2f} " if cells.get((ds, v)) else f"{'--':>11} ") for v in order))
+            (f"{agg(v)[0]*100:11.2f} " if v else f"{'--':>11} ") for v in row_vals))
     tex += [r"\bottomrule\end{tabular}\end{table}"]
     return "\n".join(tex), "\n".join(txt)
 
