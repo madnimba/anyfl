@@ -1,0 +1,1 @@
+{"attempt": 1, "cfg_fingerprint": "22d7e5c41223", "dataset": "UCI-BANK", "finished_at": "2026-07-28T17:46:55", "group": "R", "job_id": "96d2879377bccf90", "label": "R/bank/rgar_on_clean", "log": "results/logs/R_96d2879377bccf90.log", "returncode": 0, "seconds": 382.2, "status": "ok", "tier": 0}

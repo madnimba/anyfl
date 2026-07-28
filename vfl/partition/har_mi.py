@@ -7,6 +7,7 @@ from both Phase I and Phase II when ``har_attack_split: mi_ranked``.
 """
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
@@ -63,6 +64,35 @@ def partition_har_mi_ranked_features(
         random_state=int(seed),
     )
     order = np.argsort(-mi).astype(np.int64)
+
+    # Phase I defines the partition; Phase II must consume it, not re-derive it.
+    #
+    # ``mutual_info_classif`` is a k-NN (Kraskov) estimator that adds seeded noise
+    # to continuous features. It is deterministic within one software stack, but
+    # its values shift with the sklearn / numpy / Python build. UCI-HAR has 561
+    # features and 22 adjacent MI gaps below 1e-9, so any float wobble reorders
+    # near-ties and the recomputed column order stops matching Phase I. On a
+    # second machine that made every HAR job abort.
+    #
+    # When the Phase-I artifact is on disk it is authoritative. Where the
+    # recomputation already agrees (the machine that produced it) this is a
+    # no-op; elsewhere it is what keeps the partition aligned with the cluster ids.
+    _pin = os.environ.get("VFL_HAR_RANK_ORDER", os.path.join("clusters", "HAR_mi_rank_order.npy"))
+    _recomputed = order
+    _source = "recomputed"
+    if os.path.isfile(_pin):
+        _disk = np.load(_pin).astype(np.int64).ravel()
+        if _disk.shape == order.shape:
+            n_diff = int((_disk != order).sum())
+            if n_diff:
+                print(
+                    f"[HAR] MI recomputation differs from Phase-I artifact in {n_diff}/"
+                    f"{order.size} positions (near-tie reordering from a different "
+                    f"sklearn/numpy build). Using the artifact: {_pin}",
+                    flush=True,
+                )
+            order = _disk
+            _source = "phase1_artifact"
 
     if attacker_share is None:
         parts: List[torch.Tensor] = []
