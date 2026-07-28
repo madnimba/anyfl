@@ -49,6 +49,47 @@ from vfl.utils.results_sink import default_results_path  # noqa: E402
 
 _PRINT_LOCK = threading.Lock()
 
+# Cross-process GPU lock. The in-process semaphore only constrains jobs this
+# queue launched; an ad-hoc run started from another shell can still land a
+# second job on the card, which is exactly the condition that produced the
+# Xid 31 MMU fault. A file lock is visible to every process on the host.
+_GPU_LOCKFILE = os.path.join(_REPO_ROOT, "results", ".gpu.lock")
+
+
+class GpuLock:
+    def __init__(self, slots: int):
+        self.slots = max(1, int(slots))
+        self._fhs: List[Any] = []
+
+    def acquire(self, n: int) -> None:
+        import fcntl
+        os.makedirs(os.path.dirname(_GPU_LOCKFILE), exist_ok=True)
+        got = 0
+        while got < n:
+            for i in range(self.slots):
+                fh = open(f"{_GPU_LOCKFILE}.{i}", "a+")
+                try:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:
+                    fh.close()
+                    continue
+                self._fhs.append(fh)
+                got += 1
+                if got >= n:
+                    break
+            if got < n:
+                time.sleep(3)
+
+    def release(self) -> None:
+        import fcntl
+        for fh in self._fhs:
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                fh.close()
+            except OSError:
+                pass
+        self._fhs = []
+
 
 def log(msg: str) -> None:
     with _PRINT_LOCK:
@@ -79,7 +120,10 @@ def load_completed(paths: List[str]) -> set:
                 except ValueError:
                     continue
                 if row.get("status") == "ok" and row.get("job_id"):
-                    done.add(row["job_id"])
+                    # Keyed on (job_id, config fingerprint): editing a config must
+                    # invalidate its completed rows, or the queue silently keeps
+                    # stale results produced by the old config.
+                    done.add((row["job_id"], row.get("cfg_fingerprint")))
     return done
 
 
@@ -162,7 +206,8 @@ def run_job(
     secs = time.time() - t0
 
     record(ledger, {
-        "job_id": j["job_id"], "label": j["label"], "group": j["group"],
+        "job_id": j["job_id"], "cfg_fingerprint": j.get("cfg_fingerprint"),
+        "label": j["label"], "group": j["group"],
         "tier": j["tier"], "dataset": j["dataset"],
         "status": "ok" if rc == 0 else "fail", "returncode": rc,
         "attempt": attempt, "seconds": round(secs, 1),
@@ -219,7 +264,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
 
     done = set() if a.rerun_failed else load_completed([ledger])
-    pending = [j for j in jobs if j["job_id"] not in done]
+    pending = [j for j in jobs
+               if (j["job_id"], j.get("cfg_fingerprint")) not in done]
+    stale = [j for j in jobs
+             if (j["job_id"], j.get("cfg_fingerprint")) not in done
+             and any(d[0] == j["job_id"] for d in done)]
+    if stale:
+        log(f"{len(stale)} job(s) will RE-RUN: their config changed since the "
+            f"recorded run ({', '.join(sorted(x['label'] for x in stale)[:6])}"
+            f"{' ...' if len(stale) > 6 else ''})")
 
     log(f"machine={a.machine} tiers={tiers} groups={groups or 'all'} "
         f"workers={a.workers} gpu={a.gpu or 'none'} epochs={epochs or 'from config'}")
@@ -270,10 +323,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             except queue.Empty:
                 return
             slots = 0
+            glock = None
             if a.gpu is not None and str(j.get("device", "auto")) != "cpu":
                 slots = max(1, a.gpu_slots) if j.get("gpu_heavy") else 1
             for _ in range(slots):
                 gpu_sem.acquire()
+            if slots:
+                glock = GpuLock(max(1, a.gpu_slots))
+                glock.acquire(slots)
             try:
                 rc = run_job(j, python=a.python, results_path=results_path, ledger=ledger,
                              gpu=a.gpu, threads=threads, log_dir=log_dir, epochs=epochs,
@@ -293,6 +350,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 log(f"{verdict} [{n_done}/{state['n']}] {j['label']}"
                     + ("" if rc == 0 else f"  rc={rc}  see results/logs{suffix}/"))
             finally:
+                if glock is not None:
+                    glock.release()
                 for _ in range(slots):
                     gpu_sem.release()
                 q.task_done()

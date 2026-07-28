@@ -1,0 +1,6 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/bank.yaml --strategy optimal_topk --seed 1 --swap-coverage 0.0 --run-tag R-bank-clean --job-id 96d2879377bccf90 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14.jsonl =====
+[DEFENSE] dataset=UCI-BANK k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=89.26%
+[DEF] strat=optimal_topk       naked_acc=89.26% (drop_vs_clean= 0.00pp) rgar_acc=83.85% (gap_vs_clean= 5.41pp, -5.41pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/UCI-BANK/k2/R-bank-clean

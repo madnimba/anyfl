@@ -30,8 +30,12 @@ swap:
     - round_robin
     - random_clusters
     - random_per_sample
+  # Pinned, not probed. The probe ranks clients using the *trained* clean model,
+  # so its choice moves with train_seed: MNIST seed 5 attacked client 1 instead of
+  # client 0 and scored 53.3% against ~31% for the other seeds, inflating the mean
+  # to 36.38 +/- 9.70. Every archived run used client 0.
   attacker_client_idx: 0
-  attacker_probe: true
+  attacker_probe: false
   topk: 5
   core_q: 0.55
   cluster_dir: ./clusters

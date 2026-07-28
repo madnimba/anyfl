@@ -108,6 +108,23 @@ def _config_device(cfg_path: str) -> str:
     return str(d).strip().lower() if d else "auto"
 
 
+def _cfg_fingerprint(*paths: str) -> str:
+    """Hash of the config file CONTENTS the job reads.
+
+    job_id hashes argv, which contains the config *path* but not its *contents*.
+    Editing a config therefore leaves job_id unchanged and the queue skips the
+    job as already-complete -- which is exactly what would have happened after
+    pinning attacker_client_idx: the stale probe-drifted MNIST / Fashion-MNIST
+    rows would have survived into the paper.
+    """
+    h = hashlib.sha1()
+    for pth in paths:
+        fp = os.path.join(_REPO_ROOT, pth)
+        if os.path.isfile(fp):
+            h.update(open(fp, "rb").read())
+    return h.hexdigest()[:12]
+
+
 def _job_id(argv: List[str]) -> str:
     """Stable id from the argv, ignoring bookkeeping flags."""
     skip = {"--results-jsonl", "--job-id", "--out_base"}
@@ -137,6 +154,7 @@ def job(
     jid = _job_id(argv)
     cfg = args[args.index("--config") + 1] if "--config" in args else DATASETS[dataset]["defense"]
     dev = _config_device(cfg)
+    fp = _cfg_fingerprint(cfg)
     return {
         "job_id": jid,
         "tier": int(tier),
@@ -147,6 +165,7 @@ def job(
         "needs_gpu": bool(gpu),
         # "cpu" = config pins it; "auto" = use the GPU if one is visible.
         "device": dev,
+        "cfg_fingerprint": fp,
         "gpu_heavy": bool(gpu),
         "argv": argv + ["--job-id", jid],
     }

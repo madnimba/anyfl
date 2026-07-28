@@ -1,0 +1,4 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/fashionmnist.yaml --strategy optimal_topk --seed 1 --swap-coverage 0.0 --run-tag R-fashionmnist-clean --job-id 7b1fc9efc605f24a --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14.jsonl =====
+[DEFENSE] dataset=Fashion-MNIST k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=87.87%
