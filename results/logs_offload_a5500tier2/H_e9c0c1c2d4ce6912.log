@@ -1,0 +1,4 @@
+===== attempt 1 :: CUDA_VISIBLE_DEVICES='' .venv/bin/python scripts/run_attack.py --config experiments/attack/configs/bank.yaml --strategy random_noise --seed 1 --run-tag H-bank-noise --job-id e9c0c1c2d4ce6912 --results-jsonl results/runs_offload_a5500tier2.jsonl =====
+===== attempt 1 :: CUDA_VISIBLE_DEVICES='' .venv/bin/python scripts/run_attack.py --config experiments/attack/configs/bank.yaml --strategy random_noise --seed 1 --run-tag H-bank-noise --job-id e9c0c1c2d4ce6912 --results-jsonl results/runs_offload_a5500tier2.jsonl =====
+[CLEAN] dataset=UCI-BANK k=2 acc=89.26%
+[OK] Wrote run to: experiments/attack/runs/UCI-BANK/k2/H-bank-noise

@@ -1,0 +1,6 @@
+===== attempt 1 :: CUDA_VISIBLE_DEVICES='0' .venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/fashionmnist.yaml --strategy optimal_topk --seed 1 --adaptive-exclude-reference --run-tag G-fashionmnist-adaptive --job-id a83acced7c1cf93b --results-jsonl results/runs_offload_a5500tier2.jsonl =====
+[DEFENSE] dataset=Fashion-MNIST k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=87.87%
+[DEFENSE][ADAPTIVE] attacker avoids 5100 reference rows (r_ref=0.085); R stays clean but carries no attack signal
+[DEF] strat=optimal_topk       naked_acc=82.35% (drop_vs_clean= 5.52pp) rgar_acc=72.09% (gap_vs_clean=15.78pp, -10.26pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/FASHIONMNIST/k2/G-fashionmnist-adaptive

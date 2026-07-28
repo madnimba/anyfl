@@ -5,3 +5,9 @@
 [ATK] strategy=class_flip         acc= 40.74% drop=48.87pp swap_rate=1.00 donor_flip=0.90
 [ATK] strategy=optimal_topk       acc= 87.73% drop= 1.88pp swap_rate=1.00 donor_flip=0.26
 [OK] Wrote run to: experiments/attack/runs/UCI-BANK/k2/A-bank-s4
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/bank.yaml --strategy class_flip optimal_topk --seed 4 --run-tag A-bank-s4 --job-id 67e2b1357d78e4ed --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14.jsonl =====
+[CLEAN] dataset=UCI-BANK k=2 acc=89.61%
+[ATK] strategy=class_flip         acc= 40.74% drop=48.87pp swap_rate=1.00 donor_flip=0.90
+[ATK] strategy=optimal_topk       acc= 87.73% drop= 1.88pp swap_rate=1.00 donor_flip=0.26
+[OK] Wrote run to: experiments/attack/runs/UCI-BANK/k2/A-bank-s4

@@ -1,0 +1,6 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/cifar10.yaml --strategy optimal_topk --seed 1 --run-tag C-cifar10-s1 --job-id be2df7b99a51ebfa --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14.jsonl =====
+[DEFENSE] dataset=CIFAR-10 k=2 (attack+RGAR pipeline)
+
+===== attempt 2 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/cifar10.yaml --strategy optimal_topk --seed 1 --run-tag C-cifar10-s1 --job-id be2df7b99a51ebfa --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14.jsonl =====
+[DEFENSE] dataset=CIFAR-10 k=2 (attack+RGAR pipeline)

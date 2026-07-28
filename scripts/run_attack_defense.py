@@ -451,7 +451,15 @@ def run_one_defense(
     # 74.1% from here. Default "off" preserves every existing defense number;
     # "auto" matches the attack runner so the two tables describe one attack.
     _cs = str(concentrated_swap).strip().lower()
-    _use_conc = _cs == "on" or (_cs == "auto" and _ra._is_flat_vfl_dataset(ds.name))
+    # --concentrated-swap wins when explicitly set (on/off); "auto" (the
+    # default, unset by callers) defers to the config's own swap.concentrated_topk
+    # via run_attack.py's _resolve_concentrated, which covers any dataset (not
+    # just MNIST/Fashion-MNIST) -- e.g. UCI-Mushroom's mushroom.yaml sets
+    # concentrated_topk: "on" for a real attack on its 2-cluster partition.
+    # Before this fix, "auto" here meant _is_flat_vfl_dataset only, so
+    # Mushroom's naked/rgar_full always trained on greedy (near-zero-attack)
+    # donor data while its attack-side numbers correctly used concentrated.
+    _use_conc = _cs == "on" or (_cs == "auto" and _ra._resolve_concentrated(cfg, ds.name))
     if _use_conc:
         print(
             f"[DEFENSE] {ds.name}: concentrated swap ENABLED "

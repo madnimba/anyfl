@@ -6,3 +6,9 @@
 [DEFENSE] clean baseline acc=97.09%
 [DEF] strat=optimal_topk       naked_acc=17.48% (drop_vs_clean=79.61pp) rgar_acc=90.29% (gap_vs_clean= 6.80pp, +72.82pp vs naked)
 [OK] Wrote defense run to: experiments/defense/runs/UCI-HAR/k2/C-ucihar-s3
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/ucihar.yaml --strategy optimal_topk --seed 3 --run-tag C-ucihar-s3 --job-id d69c3c5e682fddab --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14.jsonl =====
+[DEFENSE] dataset=UCI-HAR k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=97.09%
+[DEF] strat=optimal_topk       naked_acc=17.48% (drop_vs_clean=79.61pp) rgar_acc=90.29% (gap_vs_clean= 6.80pp, +72.82pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/UCI-HAR/k2/C-ucihar-s3

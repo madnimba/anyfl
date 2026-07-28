@@ -1,0 +1,5 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/bank.yaml --strategy class_flip --class-flip-aux-frac 0.03 --seed 1 --run-tag J-bank-eps0.03 --job-id cea6e9e74bbfb98d --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14.jsonl =====
+[CLEAN] dataset=UCI-BANK k=2 acc=89.26%
+[ATK] strategy=class_flip         acc= 40.97% drop=48.29pp swap_rate=1.00 donor_flip=0.89
+[OK] Wrote run to: experiments/attack/runs/UCI-BANK/k2/J-bank-eps0.03

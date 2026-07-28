@@ -1,0 +1,6 @@
+===== attempt 1 :: CUDA_VISIBLE_DEVICES='0' .venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/mnist.yaml --strategy optimal_topk --seed 1 --adaptive-exclude-reference --run-tag G-mnist-adaptive --job-id 795513ad8023550e --results-jsonl results/runs_offload_a5500tier2.jsonl =====
+[DEFENSE] dataset=MNIST k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=96.48%
+[DEFENSE][ADAPTIVE] attacker avoids 5100 reference rows (r_ref=0.085); R stays clean but carries no attack signal
+[DEF] strat=optimal_topk       naked_acc=88.22% (drop_vs_clean= 8.26pp) rgar_acc=83.65% (gap_vs_clean=12.83pp, -4.57pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/MNIST/k2/G-mnist-adaptive

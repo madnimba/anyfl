@@ -1,0 +1,6 @@
+===== attempt 1 :: CUDA_VISIBLE_DEVICES='' .venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/ucihar.yaml --strategy optimal_topk --seed 1 --adaptive-exclude-reference --run-tag G-ucihar-adaptive --job-id 2ff74290db7515b9 --results-jsonl results/runs_offload_a5500tier2.jsonl =====
+[DEFENSE] dataset=UCI-HAR k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=97.80%
+[DEFENSE][ADAPTIVE] attacker avoids 1398 reference rows (r_ref=0.160); R stays clean but carries no attack signal
+[DEF] strat=optimal_topk       naked_acc=90.03% (drop_vs_clean= 7.77pp) rgar_acc=93.01% (gap_vs_clean= 4.79pp, +2.98pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/UCI-HAR/k2/G-ucihar-adaptive

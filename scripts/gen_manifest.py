@@ -190,17 +190,29 @@ def build() -> List[Dict[str, Any]]:
             ))
 
     # ── Group C (tier 1, laptop): RGAR, 3 seeds ──────────────────────────────
+    # run_attack_defense.py's --concentrated-swap default is "off" -- deliberately,
+    # so MNIST/Fashion-MNIST keep their historical greedy-diverse defense numbers
+    # unless C2 explicitly probes the concentrated variant. But that same "off"
+    # default silently overrides ANY dataset's own swap.concentrated_topk (the
+    # Mushroom bug: config said "on", CLI default said "off", CLI won). Datasets
+    # whose ATTACK config declares concentrated_topk="on" have no legacy greedy
+    # number to protect, so their defense run must request "auto" explicitly to
+    # let _resolve_concentrated read that same config value.
+    _CONCENTRATED_DEFENSE_DATASETS = {"mushroom"}
     for ds in ["mnist", "fashionmnist", "ucihar", "bank", "mushroom", "cifar10"]:
         for sd in (SEEDS_C if ds not in ("mushroom", "cifar10") else [1]):
             # MNIST / Fashion-MNIST rgar_full are the long GPU jobs that faulted
             # the 8 GB 4060 (Xid 31 -> 154). They run on the A5500's 24 GB card.
             _m = "a5500" if ds in ("mnist", "fashionmnist") else "laptop"
+            _c_args = ["--config", DATASETS[ds]["defense"],
+                       "--strategy", *DEFENSE_HEADLINE.get(ds, ["optimal_topk"]),
+                       "--seed", str(sd), "--run-tag", f"C-{ds}-s{sd}"]
+            if ds in _CONCENTRATED_DEFENSE_DATASETS:
+                _c_args += ["--concentrated-swap", "auto"]
             jobs.append(job(
                 tier=1, group="C", machine=_m, dataset=ds, runner=RD,
                 label=f"C/{ds}/seed{sd}",
-                args=["--config", DATASETS[ds]["defense"],
-                      "--strategy", *DEFENSE_HEADLINE.get(ds, ["optimal_topk"]),
-                      "--seed", str(sd), "--run-tag", f"C-{ds}-s{sd}"],
+                args=_c_args,
             ))
 
     # ── Group C2 (tier 1, laptop): attack/defense consistency probe ──────────

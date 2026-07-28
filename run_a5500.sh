@@ -165,15 +165,25 @@ if [ "${1:-}" != "--queue-only" ]; then
   echo ">>> smoke PASSED"
 fi
 
-# ── Tier 1 first, so a clock overrun only costs Tier 2/3 ───────────────────
+# ── Tier 1 first, so a clock overrun only costs Tier 2/3/4 ─────────────────
+# Groups drifted from this script's original comments as the manifest evolved
+# (group D moved from tier 3 to tier 2; group B/CIFAR-10 moved to its own
+# tier 4, lowest priority, dropped first). Query the manifest itself rather
+# than trust a comment to stay in sync -- that's exactly how tier 4 silently
+# stopped running: this script never asked for it, and the stale text below
+# still described a tier layout that no longer existed.
 echo
-echo ">>> [2/3] TIER 1 (groups E, F -- must complete)"
+echo ">>> [2/4] TIER 1 (must complete)"
 $PY scripts/run_queue.py --machine a5500 --workers "$WORKERS" --gpu "$GPU" --gpu-slots "$GPU_SLOTS" --tiers 1
 
 echo
-echo ">>> [3/3] TIER 2 then TIER 3 (B, G, H then D -- D is cut first if time runs out)"
+echo ">>> [3/4] TIER 2 (should complete)"
 $PY scripts/run_queue.py --machine a5500 --workers "$WORKERS" --gpu "$GPU" --gpu-slots "$GPU_SLOTS" --tiers 2
+
+echo
+echo ">>> [4/4] TIER 3, then TIER 4 -- cut first if the clock runs out"
 $PY scripts/run_queue.py --machine a5500 --workers "$WORKERS" --gpu "$GPU" --gpu-slots "$GPU_SLOTS" --tiers 3
+$PY scripts/run_queue.py --machine a5500 --workers "$WORKERS" --gpu "$GPU" --gpu-slots "$GPU_SLOTS" --tiers 4
 RC=$?
 
 echo

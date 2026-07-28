@@ -551,11 +551,20 @@ def table_epsilon(rows):
 
 
 def table_baselines(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
+    """SOTA comparison baselines (group D).
+
+    This table had zero config-key protection until caught by a real
+    collision: the A5500 and this machine both produced a row for
+    D/mushroom/baselines under the SAME job_id (job_id is argv-based, and
+    both invocations used identical argv -- only the underlying mushroom.yaml
+    defense config differed, before vs after the concentrated_topk fix). A
+    raw defaultdict averaged 26.25% and 73.01% naked into a fictitious 49.63%.
+    Routed through collect()/best() like every other table so a stale re-run
+    from a different config splits instead of silently blending in.
+    """
     conds = ["naked", "batch_krum_gate", "cosine_gate", "ae_gate", "rgar"]
-    cells: Dict[Tuple[str, str], List[float]] = defaultdict(list)
-    for r in rows:
-        if (r.get("extra") or {}).get("sota_table") and r["condition"] in conds:
-            cells[(r["dataset"], r["condition"])].append(r["accuracy"])
+    elig = [r for r in rows if (r.get("extra") or {}).get("sota_table") and r["condition"] in conds]
+    cells = collect(elig, lambda r: (r["dataset"], r["condition"]))
     if not cells:
         return "", "BASELINES: no rows yet (group D not run)"
     tex = [
@@ -567,12 +576,12 @@ def table_baselines(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
     ]
     txt = ["BASELINES  (accuracy %)", f"  {'dataset':<16}" + "".join(f"{c[:13]:>15}" for c in conds)]
     for ds in DATASET_ORDER:
-        if not any(cells.get((ds, c)) for c in conds):
+        row_vals = [best(cells, (ds, c)) for c in conds]
+        if not any(row_vals):
             continue
-        tex.append(f"{pretty(ds)} & " + " & ".join(fmt(cells.get((ds, c), [])) for c in conds) + r" \\")
+        tex.append(f"{pretty(ds)} & " + " & ".join(fmt(v) for v in row_vals) + r" \\")
         txt.append(f"  {pretty(ds):<16}" + "".join(
-            (f"{agg(cells[(ds,c)])[0]*100:14.2f} " if cells.get((ds, c)) else f"{'--':>14} ")
-            for c in conds))
+            (f"{agg(v)[0]*100:14.2f} " if v else f"{'--':>14} ") for v in row_vals))
     tex += [r"\bottomrule\end{tabular}\end{table}"]
     return "\n".join(tex), "\n".join(txt)
 

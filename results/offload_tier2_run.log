@@ -1,0 +1,29 @@
+==============================================================
+ OFFLOAD: A5500 tier-2 (groups D, G, H) running HERE
+ cpu_workers=3  gpu=0  groups=D,G,H
+==============================================================
+jobs pulled from manifest: 13
+gpu jobs: 7   cpu jobs: 6
+[00:02:42] OK   G/ucihar/adaptive  (6016s)
+[00:38:10] OK   H/bank/random_noise  (2128s)
+[00:52:28] OK   H/mushroom/random_noise  (858s)
+[01:15:00] OK   H/ucihar/random_noise  (1352s)
+[01:15:26] OK   D/ucihar/baselines  (10380s)
+[01:23:58] OK   D/bank/baselines  (10892s)
+[01:30:59] OK   D/fashionmnist/baselines  (11313s)
+[01:51:05] OK   D/mnist/baselines  (1205s)
+[01:54:01] OK   D/mushroom/baselines  (176s)
+[02:27:58] OK   G/fashionmnist/adaptive  (2037s)
+[02:57:49] OK   G/mnist/adaptive  (1791s)
+[02:57:49] SKIP (already done) H/fashionmnist/random_noise
+[02:58:55] OK   H/mnist/random_noise  (65s)
+
+==============================================================
+ done: 13 ok, 0
+0 failed
+ results -> results/runs_offload_a5500tier2.jsonl
+ to merge with the main laptop results file later:
+   cat results/runs_offload_a5500tier2.jsonl >> results/runs_$(hostname -s).jsonl
+ (job_id + cfg_fingerprint de-dupe on the gen_tables.py side, so a
+  straight concatenation is safe even if a job also ran on the A5500)
+==============================================================

@@ -1,0 +1,33 @@
+===== attempt 1 :: CUDA_VISIBLE_DEVICES='' .venv/bin/python scripts/run_sota_comparison.py --dataset UCI-BANK --seed 1 --run-tag D-bank-baselines --job-id 4320f95a92dd515a --results-jsonl results/runs_offload_a5500tier2.jsonl =====
+[SOTA] UCI-BANK: tabular-asymmetric path — (learnable 96-D attacker, weak linear passive). Naive defenses: krum≈naked, cosine≈0-50%det, ae≈100%det+h_B-fallback.
+[SOTA] dataset=UCI-BANK k=2 strategy=class_flip
+[SOTA] clean baseline acc=89.58%
+[SOTA] running: naked
+[SOTA] naked acc=49.03%
+[SOTA] UCI-BANK: using suppress_mode=exclude for naive gates (prevents h_B majority-class fallback and minority-class zeroing)
+[SOTA] running: batch_krum_gate
+[SOTA] batch_krum_gate acc=38.34% detect=3.9%
+[SOTA] running: cosine_gate
+[SOTA] cosine_gate acc=88.30% detect=36.9%
+[SOTA] running: ae_gate
+[SOTA] ae_gate acc=35.08% detect=23.5%
+[SOTA] running: rgar
+[SOTA] rgar acc=85.35% detect=97.2%
+
+Dataset: UCI-BANK  k=2  Attack: class_flip  Clean acc: 89.58%
+
+═════════════════════════════════════════════════════════════════════════════════════════
+ Defense               │ Detects (%) │ Acc (after) │ Collapse? │ Paper Reference             
+═════════════════════════════════════════════════════════════════════════════════════════
+ No Defense (naked)    │        0.0% │     49.03% ▼│       YES │ —                           
+ Batch Krum Gate       │        3.9% │     38.34% ▼│       YES │ Blanchard et al. NeurIPS'17 
+ Cosine Gate           │       36.9% │      88.30% │       NO  │ Cao et al. (FLTrust) NDSS'22
+ AE Gate               │       23.5% │     35.08% ▼│       YES │ Cho et al. (VFLIP) ESORICS'24
+ RGAR (ours)           │       97.2% │     85.35% ✓│       NO  │ This work                   
+─────────────────────────────────────────────────────────────────────────────────────────
+ Clean (no attack)     │           — │      89.58% │         — │                             
+═════════════════════════════════════════════════════════════════════════════════════════
+
+ Attack drop (naked):  40.55 pp  |  RGAR recovery: +36.32 pp vs naked  |  Gap to clean: 4.24 pp
+
+[SOTA] Results written to: experiments/defense/sota_comparison/runs/UCI-BANK/k2/D-bank-baselines

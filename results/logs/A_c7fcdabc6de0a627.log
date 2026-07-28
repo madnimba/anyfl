@@ -5,3 +5,9 @@
 [PROBE] dataset=FASHIONMNIST k=2 chose attacker_client_idx=1 (drop=0.4279)
 [ATK] strategy=optimal_topk       acc= 38.20% drop=48.89pp swap_rate=1.00 donor_flip=0.97
 [OK] Wrote run to: experiments/attack/runs/FASHIONMNIST/k2/A-fashionmnist-s5
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/fashionmnist.yaml --strategy optimal_topk --seed 5 --run-tag A-fashionmnist-s5 --job-id c7fcdabc6de0a627 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14.jsonl =====
+[ATTACK] FASHIONMNIST: flat-VFL path — using concentrated swap + device=cpu
+[CLEAN] dataset=FASHIONMNIST k=2 acc=87.09%
+[ATK] strategy=optimal_topk       acc= 26.84% drop=60.25pp swap_rate=1.00 donor_flip=1.00
+[OK] Wrote run to: experiments/attack/runs/FASHIONMNIST/k2/A-fashionmnist-s5

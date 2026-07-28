@@ -1,0 +1,32 @@
+===== attempt 1 :: CUDA_VISIBLE_DEVICES='0' .venv/bin/python scripts/run_sota_comparison.py --dataset MNIST --seed 1 --run-tag D-mnist-baselines --job-id 22558afd06b75077 --results-jsonl results/runs_offload_a5500tier2.jsonl =====
+[SOTA] MNIST: flat-VFL path — concentrated swap + device overridden to cpu
+[SOTA] dataset=MNIST k=2 strategy=optimal_topk
+[SOTA] clean baseline acc=96.84%
+[SOTA] running: naked
+[SOTA] naked acc=33.27%
+[SOTA] running: batch_krum_gate
+[SOTA] batch_krum_gate acc=38.15% detect=5.9%
+[SOTA] running: cosine_gate
+[SOTA] cosine_gate acc=46.90% detect=99.6%
+[SOTA] running: ae_gate
+[SOTA] ae_gate acc=33.59% detect=3.2%
+[SOTA] running: rgar
+[SOTA] rgar acc=83.53% detect=100.0%
+
+Dataset: MNIST  k=2  Attack: optimal_topk  Clean acc: 96.84%
+
+═════════════════════════════════════════════════════════════════════════════════════════
+ Defense               │ Detects (%) │ Acc (after) │ Collapse? │ Paper Reference             
+═════════════════════════════════════════════════════════════════════════════════════════
+ No Defense (naked)    │        0.0% │     33.27% ▼│       YES │ —                           
+ Batch Krum Gate       │        5.9% │     38.15% ▼│       YES │ Blanchard et al. NeurIPS'17 
+ Cosine Gate           │       99.6% │     46.90% ▼│       YES │ Cao et al. (FLTrust) NDSS'22
+ AE Gate               │        3.2% │     33.59% ▼│       YES │ Cho et al. (VFLIP) ESORICS'24
+ RGAR (ours)           │      100.0% │     83.53% ✓│       NO  │ This work                   
+─────────────────────────────────────────────────────────────────────────────────────────
+ Clean (no attack)     │           — │      96.84% │         — │                             
+═════════════════════════════════════════════════════════════════════════════════════════
+
+ Attack drop (naked):  63.57 pp  |  RGAR recovery: +50.26 pp vs naked  |  Gap to clean: 13.31 pp
+
+[SOTA] Results written to: experiments/defense/sota_comparison/runs/MNIST/k2/D-mnist-baselines

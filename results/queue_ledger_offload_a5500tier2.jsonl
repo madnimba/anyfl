@@ -1,0 +1,13 @@
+{"job_id": "dafc623285dcfa42", "label": "H/fashionmnist/random_noise", "group": "H", "status": "ok", "returncode": 0, "seconds": 170, "log": "results/logs_offload_a5500tier2/H_dafc623285dcfa42.log"}
+{"job_id": "2ff74290db7515b9", "label": "G/ucihar/adaptive", "group": "G", "status": "ok", "returncode": 0, "seconds": 6016, "log": "results/logs_offload_a5500tier2/G_2ff74290db7515b9.log"}
+{"job_id": "e9c0c1c2d4ce6912", "label": "H/bank/random_noise", "group": "H", "status": "ok", "returncode": 0, "seconds": 2128, "log": "results/logs_offload_a5500tier2/H_e9c0c1c2d4ce6912.log"}
+{"job_id": "052d2b53270a2c35", "label": "H/mushroom/random_noise", "group": "H", "status": "ok", "returncode": 0, "seconds": 858, "log": "results/logs_offload_a5500tier2/H_052d2b53270a2c35.log"}
+{"job_id": "534a5ef8bd9ba8ad", "label": "H/ucihar/random_noise", "group": "H", "status": "ok", "returncode": 0, "seconds": 1352, "log": "results/logs_offload_a5500tier2/H_534a5ef8bd9ba8ad.log"}
+{"job_id": "f1acc871d5ededd0", "label": "D/ucihar/baselines", "group": "D", "status": "ok", "returncode": 0, "seconds": 10380, "log": "results/logs_offload_a5500tier2/D_f1acc871d5ededd0.log"}
+{"job_id": "4320f95a92dd515a", "label": "D/bank/baselines", "group": "D", "status": "ok", "returncode": 0, "seconds": 10892, "log": "results/logs_offload_a5500tier2/D_4320f95a92dd515a.log"}
+{"job_id": "52779259ce81b3e2", "label": "D/fashionmnist/baselines", "group": "D", "status": "ok", "returncode": 0, "seconds": 11313, "log": "results/logs_offload_a5500tier2/D_52779259ce81b3e2.log"}
+{"job_id": "22558afd06b75077", "label": "D/mnist/baselines", "group": "D", "status": "ok", "returncode": 0, "seconds": 1205, "log": "results/logs_offload_a5500tier2/D_22558afd06b75077.log"}
+{"job_id": "d83e82fd1cc26bd9", "label": "D/mushroom/baselines", "group": "D", "status": "ok", "returncode": 0, "seconds": 176, "log": "results/logs_offload_a5500tier2/D_d83e82fd1cc26bd9.log"}
+{"job_id": "a83acced7c1cf93b", "label": "G/fashionmnist/adaptive", "group": "G", "status": "ok", "returncode": 0, "seconds": 2037, "log": "results/logs_offload_a5500tier2/G_a83acced7c1cf93b.log"}
+{"job_id": "795513ad8023550e", "label": "G/mnist/adaptive", "group": "G", "status": "ok", "returncode": 0, "seconds": 1791, "log": "results/logs_offload_a5500tier2/G_795513ad8023550e.log"}
+{"job_id": "ff19e069cb71c2cf", "label": "H/mnist/random_noise", "group": "H", "status": "ok", "returncode": 0, "seconds": 65, "log": "results/logs_offload_a5500tier2/H_ff19e069cb71c2cf.log"}

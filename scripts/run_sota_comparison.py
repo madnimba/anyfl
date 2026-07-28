@@ -321,7 +321,15 @@ def run_sota_comparison(
     dpl = bundle.defense
 
     # Detect MNIST / FashionMNIST: use concentrated swap + CPU (same logic as run_attack.py).
-    _flat_vfl = _norm_ds(str(cfg.dataset)) in {"MNIST", "FASHIONMNIST"}
+    # Reuse run_attack.py's resolution: cfg.swap.concentrated_topk ("on"/"off")
+    # wins when the config declares it explicitly; "auto" (default) falls back
+    # to the historical MNIST/Fashion-MNIST-only check. Before this fix, this
+    # script -- like run_attack_defense.py -- ignored concentrated_topk
+    # entirely and hardcoded the MNIST/FashionMNIST set, so UCI-Mushroom's
+    # concentrated_topk: "on" (needed for a genuine attack on a 2-cluster
+    # partition) was silently never applied here: naked read 83.5% (no real
+    # attack) against the attack-side's correct 26-37%.
+    _flat_vfl = _ra._resolve_concentrated(cfg, str(cfg.dataset))
     if _flat_vfl:
         import dataclasses as _dc
         # Override device to cpu: GPU trains the small LegacyFlattenVFL server more

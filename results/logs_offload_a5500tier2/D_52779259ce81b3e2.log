@@ -1,0 +1,32 @@
+===== attempt 1 :: CUDA_VISIBLE_DEVICES='0' .venv/bin/python scripts/run_sota_comparison.py --dataset Fashion-MNIST --seed 1 --run-tag D-fashionmnist-baselines --job-id 52779259ce81b3e2 --results-jsonl results/runs_offload_a5500tier2.jsonl =====
+[SOTA] Fashion-MNIST: flat-VFL path — concentrated swap + device overridden to cpu
+[SOTA] dataset=Fashion-MNIST k=2 strategy=optimal_topk
+[SOTA] clean baseline acc=87.24%
+[SOTA] running: naked
+[SOTA] naked acc=32.18%
+[SOTA] running: batch_krum_gate
+[SOTA] batch_krum_gate acc=41.53% detect=4.3%
+[SOTA] running: cosine_gate
+[SOTA] cosine_gate acc=13.29% detect=99.9%
+[SOTA] running: ae_gate
+[SOTA] ae_gate acc=32.87% detect=17.8%
+[SOTA] running: rgar
+[SOTA] rgar acc=73.63% detect=100.0%
+
+Dataset: FASHIONMNIST  k=2  Attack: optimal_topk  Clean acc: 87.24%
+
+═════════════════════════════════════════════════════════════════════════════════════════
+ Defense               │ Detects (%) │ Acc (after) │ Collapse? │ Paper Reference             
+═════════════════════════════════════════════════════════════════════════════════════════
+ No Defense (naked)    │        0.0% │     32.18% ▼│       YES │ —                           
+ Batch Krum Gate       │        4.3% │     41.53% ▼│       YES │ Blanchard et al. NeurIPS'17 
+ Cosine Gate           │       99.9% │     13.29% ▼│       YES │ Cao et al. (FLTrust) NDSS'22
+ AE Gate               │       17.8% │     32.87% ▼│       YES │ Cho et al. (VFLIP) ESORICS'24
+ RGAR (ours)           │      100.0% │     73.63% ✓│       NO  │ This work                   
+─────────────────────────────────────────────────────────────────────────────────────────
+ Clean (no attack)     │           — │      87.24% │         — │                             
+═════════════════════════════════════════════════════════════════════════════════════════
+
+ Attack drop (naked):  55.06 pp  |  RGAR recovery: +41.45 pp vs naked  |  Gap to clean: 13.61 pp
+
+[SOTA] Results written to: experiments/defense/sota_comparison/runs/FASHIONMNIST/k2/D-fashionmnist-baselines

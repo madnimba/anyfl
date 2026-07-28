@@ -1,0 +1,5 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/ucihar.yaml --strategy optimal_topk --k 10 --seed 1 --run-tag I-ucihar-k10 --job-id 919a8b36f3cd7dce --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14.jsonl =====
+[CLEAN] dataset=UCI-HAR k=10 acc=96.70%
+[ATK] strategy=optimal_topk       acc= 14.89% drop=81.81pp swap_rate=1.00 donor_flip=0.99
+[OK] Wrote run to: experiments/attack/runs/UCI-HAR/k10/I-ucihar-k10

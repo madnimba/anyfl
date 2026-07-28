@@ -33,11 +33,19 @@ swap:
   # to 36.38 +/- 9.70. Every archived run used client 0.
   attacker_client_idx: 0
   attacker_probe: false
-  topk: 3
+  # Kc=2 for Mushroom, so at most one donor-cluster target exists.
+  topk: 1
   core_q: 0.52
   cluster_dir: ./clusters
   protect_test: true
   use_signature_cache: false
+  # This config was never updated when the attack-side Mushroom fix landed
+  # (attack/configs/mushroom.yaml: topk 3->1, concentrated_topk: "on"). The
+  # published 26.3% comes from concentrated donor assignment (69 unique
+  # donors); greedy-diverse yields ~83% naked / ~98% RGAR here -- essentially
+  # no attack at all, since the naked/rgar_full training never saw the real
+  # poisoned data the attack-side numbers describe.
+  concentrated_topk: "on"
 
 defense:
   run_naked_poisoned: true

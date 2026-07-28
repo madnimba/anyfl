@@ -1,0 +1,6 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/mushroom.yaml --strategy optimal_topk --seed 1 --run-tag C-mushroom-s1 --job-id e2771d33c6310068 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14.jsonl =====
+[DEFENSE] dataset=UCI-MUSHROOM k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=97.87%
+[DEF] strat=optimal_topk       naked_acc=82.44% (drop_vs_clean=15.42pp) rgar_acc=98.44% (gap_vs_clean=-0.57pp, +16.00pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/UCI-MUSHROOM/k2/C-mushroom-s1

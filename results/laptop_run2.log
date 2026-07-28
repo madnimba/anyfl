@@ -1,0 +1,217 @@
+==============================================================
+ LAPTOP QUEUE  --  groups A + C + C2
+ workers=4   cores=16   gpu=0 (slots=1)
+==============================================================
+  fetching MNIST            ... ok  train=(60000, 1, 28, 28) test=(10000, 1, 28, 28) classes=10  [6.6s]
+  fetching Fashion-MNIST    ... ok  train=(60000, 1, 28, 28) test=(10000, 1, 28, 28) classes=10  [6.0s]
+  fetching UCI-HAR          ... ok  train=(8754, 561) test=(1545, 561) classes=6  [2.5s]
+  fetching UCI-MUSHROOM     ... ok  train=(6905, 117) test=(1219, 117) classes=2  [0.3s]
+  fetching UCI-BANK         ... ok  train=(36168, 51) test=(9043, 51) classes=2  [2.0s]
+  fetching CIFAR-10         ... ok  train=(50000, 3, 32, 32) test=(10000, 3, 32, 32) classes=10  [16.2s]
+
+all 6 dataset(s) cached -- safe to run the queue in parallel
+
+>>> [3/3] FULL QUEUE (80 epochs). Ctrl-C is safe; re-run to resume.
+[18:49:20] machine=laptop tiers=[0, 1, 2, 3, 4] groups=all workers=4 gpu=0 epochs=from config
+[18:49:20] manifest jobs=57  already complete=4  to run=53
+[18:49:20] results -> results/runs_arpita-ROG-Zephyrus-G14.jsonl
+[18:49:20] ledger  -> results/queue_ledger_arpita-ROG-Zephyrus-G14.jsonl
+[18:49:20] prefetching 6 dataset(s) serially: CIFAR-10, Fashion-MNIST, MNIST, UCI-BANK, UCI-HAR, UCI-Mushroom
+  fetching CIFAR-10         ... ok  train=(50000, 3, 32, 32) test=(10000, 3, 32, 32) classes=10  [14.1s]
+  fetching Fashion-MNIST    ... ok  train=(60000, 1, 28, 28) test=(10000, 1, 28, 28) classes=10  [6.0s]
+  fetching MNIST            ... ok  train=(60000, 1, 28, 28) test=(10000, 1, 28, 28) classes=10  [5.2s]
+  fetching UCI-BANK         ... ok  train=(36168, 51) test=(9043, 51) classes=2  [1.1s]
+  fetching UCI-HAR          ... ok  train=(8754, 561) test=(1545, 561) classes=6  [0.8s]
+  fetching UCI-Mushroom     ... ok  train=(6905, 117) test=(1219, 117) classes=2  [0.0s]
+
+all 6 dataset(s) cached -- safe to run the queue in parallel
+[18:49:51] 16 cores / 4 workers -> 4 BLAS threads per job
+[18:49:51] 14/53 jobs want CUDA; gpu=0 slots=1
+[18:54:42] OK   [1/53] A/bank/seed3
+[18:54:44] OK   [2/53] A/bank/seed1
+[18:54:48] OK   [3/53] A/bank/seed4
+[18:54:48] OK   [4/53] A/bank/seed2
+[18:58:16] OK   [5/53] A/bank/seed5
+[18:59:36] OK   [6/53] A/fashionmnist/seed1
+[19:03:15] OK   [7/53] A/fashionmnist/seed5
+[19:06:35] OK   [8/53] A/mnist/seed1
+[19:09:52] OK   [9/53] A/mnist/seed2
+[19:14:18] OK   [10/53] A/mnist/seed3
+[19:19:34] OK   [11/53] A/mnist/seed4
+[19:26:31] OK   [12/53] A/mnist/seed5
+[19:27:32] OK   [13/53] A/mushroom/seed1
+[19:28:37] OK   [14/53] A/mushroom/seed2
+[19:29:43] OK   [15/53] A/mushroom/seed3
+[19:30:54] OK   [16/53] A/mushroom/seed4
+[19:32:12] OK   [17/53] A/mushroom/seed5
+[19:34:13] OK   [18/53] A/ucihar/seed1
+[19:35:05] OK   [19/53] A/fashionmnist/seed2
+[19:35:39] OK   [20/53] A/ucihar/seed2
+[19:36:43] OK   [21/53] A/ucihar/seed3
+[19:37:18] OK   [22/53] A/ucihar/seed4
+[19:38:22] OK   [23/53] A/ucihar/seed5
+[19:42:22] OK   [24/53] A/fashionmnist/seed3
+[19:49:10] OK   [25/53] A/fashionmnist/seed4
+[19:53:09] OK   [26/53] C/bank/seed1
+[19:54:09] OK   [27/53] C/bank/seed2
+[20:00:15] OK   [28/53] C/bank/seed3
+[20:02:08] RETRY  C/cifar10/seed1 (rc=-9)
+[20:03:04] FAIL [29/53] C/cifar10/seed1  rc=-9  see results/logs/
+[20:09:09] OK   [30/53] C/bank/seed4
+[20:11:04] OK   [31/53] C/ucihar/seed1
+[20:11:52] OK   [32/53] C/mushroom/seed1
+[20:14:50] OK   [33/53] C/bank/seed5
+[20:16:25] OK   [34/53] C/ucihar/seed2
+[20:17:49] OK   [35/53] C/ucihar/seed3
+[20:18:21] OK   [36/53] C/ucihar/seed4
+[20:20:29] OK   [37/53] C/ucihar/seed5
+[20:23:54] OK   [38/53] I/ucihar/k10
+[20:26:32] OK   [39/53] I/ucihar/k4
+[20:29:56] OK   [40/53] I/ucihar/k8
+[20:33:36] OK   [41/53] J/bank/eps0.005
+[20:34:36] OK   [42/53] I/mnist/k10
+[20:38:06] OK   [43/53] J/bank/eps0.01
+[20:39:23] OK   [44/53] J/bank/eps0.02
+[20:43:45] OK   [45/53] J/bank/eps0.03
+[20:45:07] OK   [46/53] J/bank/eps0.05
+[20:46:48] OK   [47/53] J/ucihar/eps0.005
+[20:48:18] OK   [48/53] J/ucihar/eps0.01
+[20:50:07] OK   [49/53] J/ucihar/eps0.02
+[20:51:36] OK   [50/53] J/ucihar/eps0.03
+[20:53:01] OK   [51/53] I/mnist/k4
+[20:53:03] OK   [52/53] J/ucihar/eps0.05
+[21:04:51] OK   [53/53] I/mnist/k8
+[21:04:51] done: 52 ok, 1 failed, 135.0 min wall clock
+[21:04:51] inspect failures: grep -l '"status": "fail"' results/queue_ledger_arpita-ROG-Zephyrus-G14.jsonl
+
+==============================================================
+
+==============================================================================
+RESULTS SUMMARY  (135 rows from 1 file(s))
+==============================================================================
+
+ATTACK  (clean vs strongest CCVS variant, full coverage)
+  variant per dataset: MNIST=optimal_topk, Fashion-MNIST=optimal_topk, UCI-HAR=optimal_topk, UCI-Mushroom=optimal_topk, UCI-Bank=class_flip
+  dataset                          clean                attack   drop pp
+  Fashion-MNIST     87.21 +/- 0.40 (n=5)  26.21 +/- 1.94 (n=5)    61.00
+  UCI-Mushroom      97.85 +/- 0.50 (n=5)  32.78 +/- 2.60 (n=5)    65.07
+
+DEFENSE  (clean / no-defense / RGAR)
+  variant per dataset: UCI-HAR=optimal_topk, UCI-Mushroom=optimal_topk, UCI-Bank=class_flip
+  dataset                          clean            no defense                  RGAR    detect
+  MNIST                   96.48 (1 seed)                    --                    --        --
+  UCI-HAR                             --  15.66 +/- 2.06 (n=5)  89.76 +/- 2.12 (n=5)    100.0
+  UCI-Mushroom            97.87 (1 seed)        82.44 (1 seed)        98.44 (1 seed)    100.0
+  UCI-Bank                            --  39.74 +/- 1.21 (n=5)  85.16 +/- 1.39 (n=5)     99.8
+
+STRATEGIES  (attack accuracy %)
+  dataset            optimal_topk     class_flip
+  Fashion-MNIST            26.21             -- 
+  UCI-Mushroom             32.78             -- 
+  UCI-Bank                 87.53             -- 
+
+CCVS ACCURACY VS TOP-$K$ DONOR-CLUSTER COUNT.
+  dataset                $k$=1       $k$=5       $k$=6       $k$=8
+  Fashion-MNIST            --       26.21          --          -- 
+  UCI-Mushroom          32.78          --          --          -- 
+
+CCVS ACCURACY VS NUMBER OF VFL PARTIES $K$.
+  dataset                $K$=2       $K$=4       $K$=8      $K$=10
+  MNIST                 32.45       94.00       96.21       97.03 
+  Fashion-MNIST         26.21          --          --          -- 
+  UCI-HAR                  --       15.21       17.61       14.89 
+  UCI-Mushroom          32.78          --          --          -- 
+
+CCVS ACCURACY VS AUXILIARY LABEL BUDGET $\VAREPSILON$.
+  dataset         $\varepsilon$=0\%$\varepsilon$=1\%$\varepsilon$=2\%$\varepsilon$=3\%$\varepsilon$=5\%
+  Fashion-MNIST            --          --          --          --       26.21 
+  UCI-HAR               67.77       61.81       57.22       54.30          -- 
+  UCI-Mushroom             --          --          --          --       32.78 
+  UCI-Bank              62.20       60.75       36.41       40.97          -- 
+
+COVERAGE  (Optimal Topk accuracy % by swap coverage)
+  dataset                100%
+  Fashion-MNIST        26.21 
+  UCI-Mushroom         32.78 
+  UCI-Bank             87.53 
+
+REFERENCE SENSITIVITY  (RGAR accuracy %)
+  dataset              r=0.085      r=0.12      r=0.14      r=0.16
+  MNIST                 83.65          --          --          -- 
+  Fashion-MNIST         43.29          --          --          -- 
+  UCI-HAR                  --          --          --       89.21 
+  UCI-Mushroom             --       98.44          --          -- 
+  UCI-Bank                 --          --       84.94          -- 
+
+BASELINES: no rows yet (group D not run)
+
+RUNTIME  (measured wall-clock seconds per run, 80 epochs)
+  dataset         device        clean      attack       naked   rgar_full
+  MNIST           cuda          219.8       267.5        58.7      2228.2
+  Fashion-MNIST   cuda          152.9       158.7        70.7      1861.5
+  UCI-HAR         cpu            57.5        59.8        44.0       216.3
+  UCI-Mushroom    cpu            28.7        29.0          --          --
+  UCI-Mushroom    cuda           29.9          --        31.0       615.9
+  UCI-Bank        cpu            90.4       110.8        81.9       807.4
+                  total measured compute: 6.94 h
+
+CELLS SPLIT (configs that must not be averaged together)
+  'MNIST' split -> [attack/cuda/conc] n=1
+  'MNIST' split -> [attack/cuda/conc] n=5
+  'MNIST' split -> [attack/cuda] n=1
+  'MNIST' split -> [attack/cuda] n=5
+  'UCI-BANK' split -> [attack/cpu] n=1
+  'UCI-BANK' split -> [attack/cpu] n=5
+  'UCI-HAR' split -> [attack/cpu] n=1
+  'UCI-HAR' split -> [attack/cpu] n=5
+  ('Fashion-MNIST', 'clean') split -> [defense/cuda] n=1
+  ('MNIST', 'optimal_topk') split -> [attack/cuda/conc] n=1
+  ('MNIST', 'optimal_topk') split -> [attack/cuda/conc] n=5
+  ('MNIST', 0.05) split -> [attack/cuda/conc] n=1
+  ('MNIST', 0.05) split -> [attack/cuda/conc] n=5
+  ('MNIST', 1.0) split -> [attack/cuda/conc] n=1
+  ('MNIST', 1.0) split -> [attack/cuda/conc] n=5
+  ('MNIST', 5) split -> [attack/cuda/conc] n=1
+  ('MNIST', 5) split -> [attack/cuda/conc] n=5
+  ('UCI-BANK', 'class_flip') split -> [attack/cpu] n=1
+  ('UCI-BANK', 'class_flip') split -> [attack/cpu] n=5
+  ('UCI-BANK', 'clean') split -> [defense/cpu] n=1
+  ('UCI-BANK', 'clean') split -> [defense/cpu] n=5
+  ('UCI-BANK', 0.05) split -> [attack/cpu] n=1
+  ('UCI-BANK', 0.05) split -> [attack/cpu] n=5
+  ('UCI-BANK', 2) split -> [attack/cpu] n=1
+  ('UCI-BANK', 2) split -> [attack/cpu] n=5
+  ('UCI-BANK', 8) split -> [attack/cpu] n=1
+  ('UCI-BANK', 8) split -> [attack/cpu] n=5
+  ('UCI-HAR', 'class_flip') split -> [attack/cpu] n=1
+  ('UCI-HAR', 'clean') split -> [defense/cpu] n=1
+  ('UCI-HAR', 'clean') split -> [defense/cpu] n=5
+  ('UCI-HAR', 'optimal_topk') split -> [attack/cpu] n=1
+  ('UCI-HAR', 'optimal_topk') split -> [attack/cpu] n=5
+  ('UCI-HAR', 0.05) split -> [attack/cpu] n=1
+  ('UCI-HAR', 0.05) split -> [attack/cpu] n=5
+  ('UCI-HAR', 1.0) split -> [attack/cpu] n=1
+  ('UCI-HAR', 1.0) split -> [attack/cpu] n=5
+  ('UCI-HAR', 2) split -> [attack/cpu] n=1
+  ('UCI-HAR', 2) split -> [attack/cpu] n=5
+  ('UCI-HAR', 6) split -> [attack/cpu] n=1
+  ('UCI-HAR', 6) split -> [attack/cpu] n=5
+
+AUDIT
+  NO BACKING ROW  B/CIFAR-10 (expected seeds [1, 2, 3]); C/CIFAR-10 (expected seeds [1])
+  MIXED GIT SHA   Fashion-MNIST/clean; Fashion-MNIST/naked; Fashion-MNIST/rgar_full; MNIST/clean; UCI-BANK/clean; UCI-BANK/naked; UCI-BANK/rgar_full; UCI-HAR/clean; UCI-HAR/naked; UCI-HAR/rgar_full
+                  a single number must not span code versions
+
+PROVENANCE
+  rows                135
+  distinct commits    4  ['07dca061c8', '766454bc4f', '83d01f7205', 'bb5bf2ea58']
+  rows from dirty tree 132   <-- commit before the final run!
+  hosts               ['arpita-ROG-Zephyrus-G14']
+  total compute       6.94 GPU/CPU-hours
+  !! rows span multiple commits -- the paper claims every number comes
+     from post-fix code. Re-run the stragglers or explain the split.
+==============================================================================
+ results:  results/runs_arpita-ROG-Zephyrus-G14.jsonl
+ commit and push so the tables can merge both machines:
+   git add results/ && git commit -m 'laptop results' && git push
+==============================================================

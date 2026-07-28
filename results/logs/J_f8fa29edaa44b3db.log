@@ -1,0 +1,5 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/ucihar.yaml --strategy class_flip --class-flip-aux-frac 0.01 --seed 1 --run-tag J-ucihar-eps0.01 --job-id f8fa29edaa44b3db --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14.jsonl =====
+[CLEAN] dataset=UCI-HAR k=2 acc=97.54%
+[ATK] strategy=class_flip         acc= 61.81% drop=35.73pp swap_rate=1.00 donor_flip=0.97
+[OK] Wrote run to: experiments/attack/runs/UCI-HAR/k2/J-ucihar-eps0.01

@@ -1,0 +1,4 @@
+===== attempt 1 :: CUDA_VISIBLE_DEVICES='' .venv/bin/python scripts/run_attack.py --config experiments/attack/configs/mushroom.yaml --strategy random_noise --seed 1 --run-tag H-mushroom-noise --job-id 052d2b53270a2c35 --results-jsonl results/runs_offload_a5500tier2.jsonl =====
+===== attempt 1 :: CUDA_VISIBLE_DEVICES='' .venv/bin/python scripts/run_attack.py --config experiments/attack/configs/mushroom.yaml --strategy random_noise --seed 1 --run-tag H-mushroom-noise --job-id 052d2b53270a2c35 --results-jsonl results/runs_offload_a5500tier2.jsonl =====
+[CLEAN] dataset=UCI-MUSHROOM k=2 acc=97.79%
+[OK] Wrote run to: experiments/attack/runs/UCI-MUSHROOM/k2/H-mushroom-noise

@@ -1,0 +1,4 @@
+===== attempt 1 :: CUDA_VISIBLE_DEVICES='0' .venv/bin/python scripts/run_attack.py --config experiments/attack/configs/fashionmnist.yaml --strategy random_noise --seed 1 --run-tag H-fashionmnist-noise --job-id dafc623285dcfa42 --results-jsonl results/runs_offload_a5500tier2.jsonl =====
+[ATTACK] FASHIONMNIST: flat-VFL path — using concentrated swap + device=cpu
+[CLEAN] dataset=FASHIONMNIST k=2 acc=87.87%
+[OK] Wrote run to: experiments/attack/runs/FASHIONMNIST/k2/H-fashionmnist-noise
