@@ -687,6 +687,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Override train.epochs. Omit for real runs.",
     )
     p.add_argument(
+        "--rgar-recon-mode",
+        type=str,
+        default=None,
+        choices=["recon_proto", "recon_mlp", "proto_a"],
+        help=(
+            "Override defense.rgar.soft_recon_h_hat_mode. 'proto_a' repairs using "
+            "the class prototype only, with no reconstructor -- isolates whether "
+            "the learned reconstructor is load-bearing."
+        ),
+    )
+    p.add_argument(
         "--rgar-recon-epochs",
         type=int,
         default=None,
@@ -797,6 +808,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                 train=dc_replace(bundle.attack.train, epochs=int(_epochs)),
             ),
             defense=bundle.defense,
+        )
+    if args.rgar_recon_mode is not None:
+        bundle = DefenseExperimentBundle(
+            attack=bundle.attack,
+            defense=dc_replace(bundle.defense, rgar={
+                **dict(bundle.defense.rgar),
+                "soft_recon_h_hat_mode": str(args.rgar_recon_mode),
+            }),
         )
     if args.rgar_recon_epochs is not None:
         bundle = DefenseExperimentBundle(

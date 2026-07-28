@@ -171,14 +171,14 @@ def build() -> List[Dict[str, Any]]:
             ))
 
     # ── Group C (tier 1, laptop): RGAR, 3 seeds ──────────────────────────────
-    for ds in ["mnist", "fashionmnist", "ucihar", "bank"]:
-        for sd in SEEDS_C:
+    for ds in ["mnist", "fashionmnist", "ucihar", "bank", "mushroom", "cifar10"]:
+        for sd in (SEEDS_C if ds not in ("mushroom", "cifar10") else [1]):
             jobs.append(job(
                 tier=1, group="C", machine="laptop", dataset=ds, runner=RD,
                 label=f"C/{ds}/seed{sd}",
                 args=["--config", DATASETS[ds]["defense"],
-                      "--strategy", *DEFENSE_HEADLINE[ds], "--seed", str(sd),
-                      "--run-tag", f"C-{ds}-s{sd}"],
+                      "--strategy", *DEFENSE_HEADLINE.get(ds, ["optimal_topk"]),
+                      "--seed", str(sd), "--run-tag", f"C-{ds}-s{sd}"],
             ))
 
     # ── Group C2 (tier 1, laptop): attack/defense consistency probe ──────────
@@ -268,10 +268,51 @@ def build() -> List[Dict[str, Any]]:
     # Table 4 comes from the same code path as everything else.
     for ds in CHEAP:
         jobs.append(job(
-            tier=1, group="D", machine="a5500", dataset=ds, runner=RS,
+            tier=2, group="D", machine="a5500", dataset=ds, runner=RS,
             label=f"D/{ds}/baselines",
             args=["--dataset", DATASETS[ds]["name"], "--seed", "1",
                   "--run-tag", f"D-{ds}-baselines"],
+        ))
+
+    # ── Group I (tier 1, laptop): party-count ablation, Table 11 ─────────────
+    # Only k=2 exists today, so that table cannot regenerate at all.
+    for ds in ["mnist", "ucihar"]:
+        for k in (4, 8, 10):
+            jobs.append(job(
+                tier=1, group="I", machine="laptop", dataset=ds, runner=RA,
+                label=f"I/{ds}/k{k}",
+                args=["--config", DATASETS[ds]["attack"], "--strategy", "optimal_topk",
+                      "--k", str(k), "--seed", "1", "--run-tag", f"I-{ds}-k{k}"],
+            ))
+
+    # ── Group J (tier 1, laptop): epsilon ablation, Table 12 ─────────────────
+    # NOTE: no archived run ever varied either aux knob -- every archived config
+    # has class_flip_aux_frac=0.05 and har_aux_labeled_frac=0.03. Table 12 in the
+    # submitted paper therefore cannot be reproduced from any run in this repo.
+    # This sweeps swap.class_flip_aux_frac, the knob that actually feeds the
+    # class_flip donor pool and hence the BANK/HAR headline attacks.
+    for ds in ["bank", "ucihar"]:
+        for eps in (0.005, 0.01, 0.02, 0.03, 0.05):
+            jobs.append(job(
+                tier=1, group="J", machine="laptop", dataset=ds, runner=RA,
+                label=f"J/{ds}/eps{eps}",
+                args=["--config", DATASETS[ds]["attack"], "--strategy", "class_flip",
+                      "--class-flip-aux-frac", str(eps), "--seed", "1",
+                      "--run-tag", f"J-{ds}-eps{eps}"],
+            ))
+
+    # ── Group K (tier 1, a5500): prototype-only RGAR ─────────────────────────
+    # RGAR lands near 83.5 from both a 74.1 and a 31.65 baseline, and at 85.16 on
+    # BANK whose baseline moved 9 pp. That insensitivity to attack strength is
+    # the thing to explain. proto_a repairs with p_A[y] and no reconstructor at
+    # all, separating "repair works" from "the reconstructor is barely used".
+    for ds in ["mnist", "ucihar"]:
+        jobs.append(job(
+            tier=1, group="K", machine="a5500", dataset=ds, runner=RD,
+            label=f"K/{ds}/proto_only",
+            args=["--config", DATASETS[ds]["defense"], "--strategy", "optimal_topk",
+                  "--seed", "1", "--rgar-recon-mode", "proto_a",
+                  "--run-tag", f"K-{ds}-proto"],
         ))
 
     return jobs

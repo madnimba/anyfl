@@ -41,6 +41,11 @@ class AttackSwapConfig:
     # ``random_noise`` strategy only: perturbation size in units of each feature's
     # training standard deviation.
     random_noise_sigma: float = 1.0
+    # Donor assignment for ``optimal_topk``: "auto" = concentrated for flatten-VFL
+    # datasets (MNIST / Fashion-MNIST) and greedy-diverse elsewhere; "on"/"off"
+    # force it. UCI-Mushroom's published 26.3% was produced by the concentrated
+    # path (69 unique donors); greedy-diverse gives 96.2% -- essentially no attack.
+    concentrated_topk: str = "auto"
     # ``class_flip`` strategy only: stratified aux fraction used to estimate per-cluster
     # majority class. Aligns with the Phase-I aux budget (consistent threat model).
     class_flip_aux_frac: float = 0.05

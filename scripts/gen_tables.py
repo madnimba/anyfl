@@ -22,12 +22,13 @@ from __future__ import annotations
 
 import argparse
 import glob
+import hashlib
 import json
 import math
 import os
 import sys
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
@@ -35,22 +36,154 @@ if _REPO_ROOT not in sys.path:
 
 from vfl.utils.results_sink import iter_rows  # noqa: E402
 
-DATASET_ORDER = ["MNIST", "Fashion-MNIST", "CIFAR-10", "UCI-HAR", "UCI-MUSHROOM", "UCI-BANK"]
-PRETTY = {"UCI-MUSHROOM": "UCI-Mushroom", "UCI-HAR": "UCI-HAR", "UCI-BANK": "UCI-Bank"}
+DATASET_ORDER = ["MNIST", "Fashion-MNIST", "CIFAR-10", "UCI-HAR", "UCI-Mushroom", "UCI-BANK"]
+PRETTY = {"UCI-BANK": "UCI-Bank"}
+
+# The runners derive dataset names from the loaded dataset, not the config, so the
+# same dataset arrives spelled several ways (FASHIONMNIST vs Fashion-MNIST). Any
+# spelling that misses DATASET_ORDER is silently dropped from every table, which
+# is how 19 Fashion-MNIST rows went missing while the audit reported them absent.
+# Canonicalised once at ingest -- never per table.
+_DS_CANON = {
+    "MNIST": "MNIST",
+    "FASHIONMNIST": "Fashion-MNIST", "FASHION-MNIST": "Fashion-MNIST",
+    "CIFAR10": "CIFAR-10", "CIFAR-10": "CIFAR-10",
+    "UCIHAR": "UCI-HAR", "HAR": "UCI-HAR", "UCI-HAR": "UCI-HAR",
+    "UCIMUSHROOM": "UCI-Mushroom", "MUSHROOM": "UCI-Mushroom",
+    "UCI-MUSHROOM": "UCI-Mushroom", "UCI-Mushroom": "UCI-Mushroom",
+    "UCIBANK": "UCI-BANK", "BANK": "UCI-BANK", "UCI-BANK": "UCI-BANK",
+}
+
+
+def canon_ds(name: str) -> str:
+    n = str(name).strip()
+    return _DS_CANON.get(n.upper(), _DS_CANON.get(n, n))
 
 
 def pretty(ds: str) -> str:
     return PRETTY.get(ds, ds)
 
 
-def load(paths: Sequence[str]) -> List[Dict[str, Any]]:
+POOLING_SPLITS: List[str] = []
+
+
+class CellPoolingError(AssertionError):
+    """Raised when one table cell would average rows from different configs."""
+
+
+def config_key(r: Dict[str, Any]) -> str:
+    """Identity of everything that makes two runs non-comparable.
+
+    Averaging is only ever legitimate across ``seed``. Every other axis --
+    swap variant, concentrated on/off, top-k, r_ref, reference corruption,
+    coverage, device, strategy -- must split cells. This is what was wrong:
+    MNIST no-defense pooled the greedy (~74%) and concentrated (~32%) variants
+    into 66.5 +/- 17.3, a number describing no experiment that was ever run.
+    """
+    cfg = dict(r.get("config") or {})
+    for volatile in ("seed", "train_seed", "run_name"):
+        cfg.pop(volatile, None)
+    extra = r.get("extra") or {}
+    sm = extra.get("swap_meta") or {}
+    rm = extra.get("rgar_meta") or {}
+    disc = {
+        "cfg": cfg,
+        "condition": r.get("condition"),
+        "strategy": r.get("strategy"),
+        # Not in the config dict -- set by CLI/dispatch, but changes the experiment.
+        "swap_variant": sm.get("variant"),
+        "coverage": sm.get("swap_coverage_requested", 1.0),
+        "excluded_ref": bool(sm.get("n_excluded_from_victim_set", 0)),
+        "ref_frac": rm.get("ref_frac"),
+        "corrupt_ref_frac": rm.get("corrupt_ref_frac", 0.0),
+        "recon_mode": rm.get("soft_recon_h_hat_mode"),
+    }
+    blob = json.dumps(_jsonable_key(disc), sort_keys=True, default=str)
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:12]
+
+
+def _jsonable_key(o: Any) -> Any:
+    if isinstance(o, dict):
+        return {str(k): _jsonable_key(v) for k, v in sorted(o.items())}
+    if isinstance(o, (list, tuple)):
+        return [_jsonable_key(v) for v in o]
+    if isinstance(o, float):
+        return round(o, 10)
+    return o
+
+
+def collect(rows: List[Dict[str, Any]], keyfn) -> Dict[Any, List[float]]:
+    """Bucket accuracies by display key, refusing to pool differing configs.
+
+    Fails loudly instead of averaging: a wrong number that looks plausible is
+    far more dangerous than a crash.
+    """
+    by_cfg: Dict[Any, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
+    ex: Dict[Any, Dict[str, Dict[str, Any]]] = defaultdict(dict)
+    for r in rows:
+        k = keyfn(r)
+        if k is None:
+            continue
+        by_cfg[k][r["_cfgkey"]].append(r["accuracy"])
+        ex[k][r["_cfgkey"]] = r
+    out: Dict[Any, List[float]] = {}
+    for k, per in by_cfg.items():
+        if len(per) == 1:
+            out[k] = next(iter(per.values()))
+            continue
+        # Never average across configs. Split the cell and label each variant so
+        # the difference is visible in the table rather than hidden in a mean.
+        for ck, vals in sorted(per.items(), key=lambda kv: -len(kv[1])):
+            r = ex[k][ck]
+            sm = (r.get("extra") or {}).get("swap_meta") or {}
+            rm = (r.get("extra") or {}).get("rgar_meta") or {}
+            bits = [r["_src"], r["_dev"]]
+            if sm.get("variant"):
+                bits.append("conc")
+            if sm.get("swap_coverage_requested", 1.0) != 1.0:
+                bits.append(f"cov{int(sm['swap_coverage_requested']*100)}")
+            if rm.get("ref_frac") is not None:
+                bits.append(f"r{rm['ref_frac']}")
+            if rm.get("corrupt_ref_frac"):
+                bits.append(f"corrupt{rm['corrupt_ref_frac']}")
+            lbl = "/".join(str(b) for b in bits)
+            POOLING_SPLITS.append(f"{k!r} split -> [{lbl}] n={len(vals)}")
+            nk = (k + (lbl,)) if isinstance(k, tuple) else (k, lbl)
+            out[nk] = vals
+    return out
+
+
+def manifest_job_ids(manifest: str = "experiments/manifest.jsonl") -> Set[str]:
+    mp = os.path.join(_REPO_ROOT, manifest)
+    out: Set[str] = set()
+    if os.path.isfile(mp):
+        for line in open(mp, "r", encoding="utf-8"):
+            line = line.strip()
+            if line:
+                out.add(json.loads(line)["job_id"])
+    return out
+
+
+def load(paths: Sequence[str], *, only_manifest: bool = True) -> List[Dict[str, Any]]:
     rows = [r for r in iter_rows(paths) if r.get("accuracy") is not None]
+    # One-off verification runs (GATE, HARDEV, CHECK2, calibration) are not
+    # experiments and must never reach a paper table. Manifest membership is the
+    # test: if the queue did not schedule it, it is not a result.
+    if only_manifest:
+        ids = manifest_job_ids()
+        rows = [r for r in rows if r.get("job_id") in ids]
     # Smoke rows (epochs==1) must never reach a table.
     keep = []
     for r in rows:
         ep = ((r.get("config") or {}).get("train") or {}).get("epochs")
         if ep is not None and int(ep) <= 1:
             continue
+        r["dataset"] = canon_ds(r.get("dataset", ""))
+        rd = str(r.get("run_dir") or "")
+        r["_src"] = ("defense" if "/defense/" in rd else
+                     "sota" if "sota" in rd else "attack")
+        r["_dev"] = str(((r.get("config") or {}).get("train") or {}).get("device") or "?")
+        r["_cfgkey"] = config_key(r)
         keep.append(r)
     return keep
 
@@ -151,15 +284,11 @@ def _strategy_caption(sel: Dict[str, str]) -> str:
 def table_attack(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
     """Clean vs the strongest CCVS variant per dataset, mean +/- std over seeds."""
     sel = _headline_strategy(rows, "attack")
-    clean: Dict[str, List[float]] = defaultdict(list)
-    atk: Dict[str, List[float]] = defaultdict(list)
-    for r in rows:
-        if _cov(r) < 1.0:
-            continue
-        if r["condition"] == "clean":
-            clean[r["dataset"]].append(r["accuracy"])
-        elif r["condition"] == "attack" and r.get("strategy") == sel.get(r["dataset"]):
-            atk[r["dataset"]].append(r["accuracy"])
+    full = [r for r in rows if _cov(r) >= 1.0 and r["_src"] == "attack"]
+    clean = collect(full, lambda r: r["dataset"] if r["condition"] == "clean" else None)
+    atk = collect(full, lambda r: r["dataset"]
+                  if (r["condition"] == "attack" and r.get("strategy") == sel.get(r["dataset"]))
+                  else None)
 
     tex = [
         r"\begin{table}[t]\centering",
@@ -191,21 +320,17 @@ def table_attack(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
 def table_defense(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
     """Clean / no-defense / RGAR, default reference settings only."""
     sel = _headline_strategy(rows, "naked")
-    buckets: Dict[Tuple[str, str], List[float]] = defaultdict(list)
     det: Dict[str, List[float]] = defaultdict(list)
-    for r in rows:
-        if _cov(r) < 1.0 or _corrupt(r) > 0.0 or _adaptive(r):
-            continue
+    elig = [r for r in rows
+            if r["_src"] == "defense"
+            and _cov(r) >= 1.0 and _corrupt(r) <= 0.0 and not _adaptive(r)
+            and r["condition"] in ("clean", "naked", "rgar_full")
+            and r.get("strategy") in (None, sel.get(r["dataset"]))]
+    buckets = collect(elig, lambda r: (r["dataset"], r["condition"]))
+    for r in elig:
         c = r["condition"]
-        if c in ("clean", "naked", "rgar_full"):
-            rr = _rref(r)
-            # Only the dataset's default r_ref belongs in the headline table;
-            # the sweep has its own table.
-            if c == "rgar_full" and rr is not None and abs(rr - 0.16) > 1e-9 and rr in (0.01, 0.02, 0.05, 0.10):
-                continue
-            buckets[(r["dataset"], c)].append(r["accuracy"])
-            if c == "rgar_full" and r.get("detect_rate_pct") is not None:
-                det[r["dataset"]].append(r["detect_rate_pct"])
+        if c == "rgar_full" and r.get("detect_rate_pct") is not None:
+            det[r["dataset"]].append(r["detect_rate_pct"])
 
     tex = [
         r"\begin{table}[t]\centering",
@@ -231,14 +356,9 @@ def table_defense(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
 
 
 def table_coverage(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
-    cells: Dict[Tuple[str, float], List[float]] = defaultdict(list)
-    covs = set()
-    for r in rows:
-        if r["condition"] != "attack" or r.get("strategy") != "optimal_topk":
-            continue
-        c = _cov(r)
-        cells[(r["dataset"], c)].append(r["accuracy"])
-        covs.add(c)
+    elig = [r for r in rows if r["condition"] == "attack" and r.get("strategy") == "optimal_topk"]
+    cells = collect(elig, lambda r: (r["dataset"], _cov(r)))
+    covs = {_cov(r) for r in elig}
     order = sorted(covs)
     if not order:
         return "", "COVERAGE: no rows yet"
@@ -307,13 +427,10 @@ def table_reference(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
 
 def table_strategies(rows: List[Dict[str, Any]]) -> Tuple[str, str]:
     """Per-strategy comparison, including the random_noise control."""
-    cells: Dict[Tuple[str, str], List[float]] = defaultdict(list)
-    strats = set()
-    for r in rows:
-        if r["condition"] != "attack" or _cov(r) < 1.0:
-            continue
-        cells[(r["dataset"], r["strategy"])].append(r["accuracy"])
-        strats.add(r["strategy"])
+    elig = [r for r in rows if r["condition"] == "attack" and _cov(r) >= 1.0
+            and r["_src"] == "attack"]
+    cells = collect(elig, lambda r: (r["dataset"], r["strategy"]))
+    strats = {r["strategy"] for r in elig}
     order = [s for s in ("optimal_topk", "class_flip", "derangement", "paired_clusters",
                          "round_robin", "random_clusters", "random_per_sample", "random_noise")
              if s in strats]
@@ -351,16 +468,9 @@ def _knob(r: Dict[str, Any], path: List[str]) -> Any:
 
 def _table_sweep(rows, *, path, title, label, header, condition="attack", fmt_key=str):
     """One table per config knob swept across datasets."""
-    cells: Dict[Tuple[str, Any], List[float]] = defaultdict(list)
-    vals = set()
-    for r in rows:
-        if r["condition"] != condition:
-            continue
-        v = _knob(r, path)
-        if v is None:
-            continue
-        cells[(r["dataset"], v)].append(r["accuracy"])
-        vals.add(v)
+    elig = [r for r in rows if r["condition"] == condition and _knob(r, path) is not None]
+    cells = collect(elig, lambda r: (r["dataset"], _knob(r, path)))
+    vals = {_knob(r, path) for r in elig}
     if len(vals) < 2:
         return "", f"{title.upper()}: needs >=2 distinct values of {'.'.join(path)}; found {sorted(vals) or 'none'}"
     order = sorted(vals)
@@ -553,11 +663,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--results", default="results/runs_*.jsonl")
     p.add_argument("--out", default=None, help="Write LaTeX here (default: stdout)")
     p.add_argument("--summary", action="store_true", help="Human-readable text instead of LaTeX")
+    p.add_argument("--include-adhoc", action="store_true",
+                   help="Also include rows whose job_id is not in the manifest "
+                        "(verification/calibration runs). Off by default.")
     a = p.parse_args(argv)
 
     paths = sorted(glob.glob(os.path.join(_REPO_ROOT, a.results)))
     paths = [q for q in paths if "_smoke" not in os.path.basename(q)]
-    rows = load(paths)
+    rows = load(paths, only_manifest=not a.include_adhoc)
     if not rows:
         print(f"no result rows found matching {a.results}\n"
               f"(searched: {[os.path.relpath(q, _REPO_ROOT) for q in paths] or 'nothing'})")
@@ -580,6 +693,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("=" * 78)
         for x in txt_parts:
             print("\n" + x)
+        if POOLING_SPLITS:
+            print("\nCELLS SPLIT (configs that must not be averaged together)")
+            for line in sorted(set(POOLING_SPLITS)):
+                print("  " + line)
         print("\n" + audit(rows))
         print("\n" + provenance(rows))
         print("=" * 78)

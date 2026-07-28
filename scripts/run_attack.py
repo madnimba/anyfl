@@ -80,6 +80,32 @@ def _is_flat_vfl_dataset(name: str) -> bool:
     return name.strip().upper().replace("-", "") in {d.replace("-", "") for d in _FLAT_VFL_DATASETS}
 
 
+def _resolve_concentrated(cfg, dataset_name: str) -> bool:
+    """Explicit knob wins; "auto" keeps the historical flatten-VFL behaviour."""
+    mode = str(getattr(cfg.swap, "concentrated_topk", "auto")).strip().lower()
+    if mode in ("on", "true", "yes"):
+        return True
+    if mode in ("off", "false", "no"):
+        return False
+    return _is_flat_vfl_dataset(dataset_name)
+
+
+def _check_topk_vs_clusters(topk: int, n_clusters: int, dataset: str) -> None:
+    """top-k must leave a real choice of donor clusters.
+
+    With ``topk >= n_clusters`` every other cluster is a target, so the donor
+    pool is the whole dataset minus the source cluster and the attack degrades
+    toward the random-sample control rather than a directed cross-cluster swap.
+    """
+    if int(topk) >= int(n_clusters):
+        raise ValueError(
+            f"{dataset}: swap.topk={topk} >= number of Phase-I clusters "
+            f"({n_clusters}). Every other cluster becomes a donor target, which "
+            f"degenerates the attack toward the random-sample control. "
+            f"Set swap.topk <= {int(n_clusters) - 1}."
+        )
+
+
 def _prefix_for_clusters(dataset_name: str) -> str:
     """Match Phase 1 export prefixes (vfl/clustering/semi_sup.canonical_export_prefix)."""
     d = dataset_name.strip().upper()
@@ -408,6 +434,7 @@ def run_one(
             experiment_seed=int(cfg.seed),
         )
     ids, conf, cluster_meta = load_cluster_artifacts(prefix, cluster_dir=cfg.swap.cluster_dir)
+    _check_topk_vs_clusters(int(cfg.swap.topk), int(cluster_meta.get("n_clusters", 0)), ds.name)
     conf_for_swap = None if bool(cfg.swap.ignore_cluster_conf) else conf
     if int(ids.shape[0]) != int(ds.X_train.shape[0]):
         raise ValueError(
@@ -642,7 +669,7 @@ def run_one(
                 aux_indices_by_class=aux_pool_by_class if strat == "class_flip" else None,
                 victim_pred_class=victim_pred_class if strat == "class_flip" else None,
                 swap_geometry_vecs=swap_geometry_vecs,
-                use_concentrated_topk=_flat_vfl,
+                use_concentrated_topk=_resolve_concentrated(cfg, ds.name),
             )
         except Exception as exc:
             err_dir = os.path.join(paths.root, str(strat))
@@ -826,6 +853,18 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Fast validity check: 1 training epoch. Equivalent to --epochs 1 here.",
     )
     p.add_argument(
+        "--class-flip-aux-frac",
+        type=float,
+        default=None,
+        help="Override swap.class_flip_aux_frac (the epsilon auxiliary-label budget).",
+    )
+    p.add_argument(
+        "--topk",
+        type=int,
+        default=None,
+        help="Override swap.topk (donor-cluster target count).",
+    )
+    p.add_argument(
         "--swap-coverage",
         type=float,
         default=None,
@@ -896,6 +935,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             swap_kwargs["attacker_client_idx"] = int(args.attacker_client_idx)
         if args.swap_coverage is not None:
             swap_kwargs["swap_coverage"] = float(args.swap_coverage)
+        if args.class_flip_aux_frac is not None:
+            swap_kwargs["class_flip_aux_frac"] = float(args.class_flip_aux_frac)
+        if args.topk is not None:
+            swap_kwargs["topk"] = int(args.topk)
         if swap_kwargs:
             cfg = replace(cfg, swap=replace(cfg.swap, **swap_kwargs))
         return cfg

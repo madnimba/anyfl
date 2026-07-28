@@ -24,8 +24,12 @@ swap:
     - random_per_sample
   attacker_client_idx: 0
   attacker_probe: true
-  topk: 3
+  # Kc=2 for Mushroom, so at most one donor-cluster target exists.
+  topk: 1
   core_q: 0.52
   cluster_dir: ./clusters
   protect_test: true
   use_signature_cache: false
+  # The published 26.3% came from concentrated donor assignment (69 unique
+  # donors); greedy-diverse yields 96.2%, i.e. no attack at all.
+  concentrated_topk: "on"
