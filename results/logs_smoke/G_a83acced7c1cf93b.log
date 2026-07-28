@@ -1,7 +1,0 @@
-
-===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/fashionmnist.yaml --strategy optimal_topk --seed 1 --adaptive-exclude-reference --run-tag G-fashionmnist-adaptive --job-id a83acced7c1cf93b --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14_smoke.jsonl --smoke =====
-[DEFENSE] dataset=Fashion-MNIST k=2 (attack+RGAR pipeline)
-[DEFENSE] clean baseline acc=81.77%
-[DEFENSE][ADAPTIVE] attacker avoids 5100 reference rows (r_ref=0.085); R stays clean but carries no attack signal
-[DEF] strat=optimal_topk       naked_acc=73.42% (drop_vs_clean= 8.35pp) rgar_acc=74.79% (gap_vs_clean= 6.98pp, +1.37pp vs naked)
-[OK] Wrote defense run to: experiments/defense/runs/FASHIONMNIST/k2/G-fashionmnist-adaptive

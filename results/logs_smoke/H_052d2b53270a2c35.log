@@ -1,5 +1,0 @@
-
-===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/mushroom.yaml --strategy random_noise --seed 1 --run-tag H-mushroom-noise --job-id 052d2b53270a2c35 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14_smoke.jsonl --smoke =====
-[CLEAN] dataset=UCI-MUSHROOM k=2 acc=100.00%
-[PROBE] dataset=UCI-MUSHROOM k=2 chose attacker_client_idx=1 (drop=0.3290)
-[OK] Wrote run to: experiments/attack/runs/UCI-MUSHROOM/k2/H-mushroom-noise

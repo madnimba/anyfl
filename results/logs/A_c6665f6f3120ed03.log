@@ -1,0 +1,7 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/fashionmnist.yaml --strategy optimal_topk --seed 3 --run-tag A-fashionmnist-s3 --job-id c6665f6f3120ed03 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14.jsonl =====
+[ATTACK] FASHIONMNIST: flat-VFL path — using concentrated swap + device=cpu
+[CLEAN] dataset=FASHIONMNIST k=2 acc=86.82%
+[PROBE] dataset=FASHIONMNIST k=2 chose attacker_client_idx=1 (drop=0.4122)
+[ATK] strategy=optimal_topk       acc= 42.06% drop=44.76pp swap_rate=1.00 donor_flip=0.97
+[OK] Wrote run to: experiments/attack/runs/FASHIONMNIST/k2/A-fashionmnist-s3

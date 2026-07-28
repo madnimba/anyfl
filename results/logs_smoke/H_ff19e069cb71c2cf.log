@@ -1,6 +1,0 @@
-
-===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/mnist.yaml --strategy random_noise --seed 1 --run-tag H-mnist-noise --job-id ff19e069cb71c2cf --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14_smoke.jsonl --smoke =====
-[ATTACK] MNIST: flat-VFL path — using concentrated swap + device=cpu
-[CLEAN] dataset=MNIST k=2 acc=91.99%
-[PROBE] dataset=MNIST k=2 chose attacker_client_idx=1 (drop=0.2730)
-[OK] Wrote run to: experiments/attack/runs/MNIST/k2/H-mnist-noise

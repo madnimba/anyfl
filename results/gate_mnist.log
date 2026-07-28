@@ -1,5 +1,5 @@
 [ATTACK] MNIST: flat-VFL path — using concentrated swap + device=cpu
-[CLEAN] dataset=MNIST k=2 acc=96.84%
-[PROBE] dataset=MNIST k=2 chose attacker_client_idx=0 (drop=0.4771)
-[ATK] strategy=optimal_topk       acc= 33.27% drop=63.57pp swap_rate=1.00 donor_flip=0.98
+[CLEAN] dataset=MNIST k=2 acc=96.87%
+[PROBE] dataset=MNIST k=2 chose attacker_client_idx=0 (drop=0.4798)
+[ATK] strategy=optimal_topk       acc= 33.03% drop=63.84pp swap_rate=1.00 donor_flip=0.98
 [OK] Wrote run to: experiments/attack/runs/MNIST/k2/GATE-mnist

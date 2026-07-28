@@ -1,0 +1,8 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/ucihar.yaml --strategy optimal_topk --seed 1 --run-tag C-ucihar-s1 --job-id 551d252f2a1c9e42 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14.jsonl =====
+/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torch/cuda/__init__.py:129: UserWarning: CUDA initialization: CUDA unknown error - this may be due to an incorrectly set up environment, e.g. changing env variable CUDA_VISIBLE_DEVICES after program start. Setting the available devices to be zero. (Triggered internally at /pytorch/c10/cuda/CUDAFunctions.cpp:109.)
+  return torch._C._cuda_getDeviceCount() > 0
+[DEFENSE] dataset=UCI-HAR k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=97.54%
+[DEF] strat=optimal_topk       naked_acc=13.72% (drop_vs_clean=83.82pp) rgar_acc=93.01% (gap_vs_clean= 4.53pp, +79.29pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/UCI-HAR/k2/C-ucihar-s1

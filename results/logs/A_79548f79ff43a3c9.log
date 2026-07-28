@@ -1,0 +1,7 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/mnist.yaml --strategy optimal_topk --seed 5 --run-tag A-mnist-s5 --job-id 79548f79ff43a3c9 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14.jsonl =====
+[ATTACK] MNIST: flat-VFL path — using concentrated swap + device=cpu
+[CLEAN] dataset=MNIST k=2 acc=96.46%
+[PROBE] dataset=MNIST k=2 chose attacker_client_idx=1 (drop=0.4430)
+[ATK] strategy=optimal_topk       acc= 53.31% drop=43.15pp swap_rate=1.00 donor_flip=0.96
+[OK] Wrote run to: experiments/attack/runs/MNIST/k2/A-mnist-s5

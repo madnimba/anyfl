@@ -1,6 +1,0 @@
-
-===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/mnist.yaml --strategy optimal_topk --seed 1 --corrupt-ref-frac 0.10 --run-tag F-mnist-corrupt10 --job-id eedd6d7dc4e91aef --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14_smoke.jsonl --smoke =====
-[DEFENSE] dataset=MNIST k=2 (attack+RGAR pipeline)
-[DEFENSE] clean baseline acc=91.99%
-[DEF] strat=optimal_topk       naked_acc=69.63% (drop_vs_clean=22.36pp) rgar_acc=16.29% (gap_vs_clean=75.70pp, -53.34pp vs naked)
-[OK] Wrote defense run to: experiments/defense/runs/MNIST/k2/F-mnist-corrupt10

@@ -1,5 +1,0 @@
-
-===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/ucihar.yaml --strategy optimal_topk --seed 1 --swap-coverage 0.5 --run-tag E-ucihar-cov50 --job-id 70dad3618a7667e3 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14_smoke.jsonl --smoke =====
-[CLEAN] dataset=UCI-HAR k=2 acc=73.79%
-[ATK] strategy=optimal_topk       acc= 72.10% drop= 1.68pp swap_rate=0.50 donor_flip=0.99
-[OK] Wrote run to: experiments/attack/runs/UCI-HAR/k2/E-ucihar-cov50

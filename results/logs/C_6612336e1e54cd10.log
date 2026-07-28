@@ -1,0 +1,6 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/bank.yaml --strategy class_flip --seed 3 --run-tag C-bank-s3 --job-id 6612336e1e54cd10 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14.jsonl =====
+[DEFENSE] dataset=UCI-BANK k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=89.34%
+[DEF] strat=class_flip         naked_acc=39.61% (drop_vs_clean=49.73pp) rgar_acc=84.61% (gap_vs_clean= 4.73pp, +45.00pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/UCI-BANK/k2/C-bank-s3
