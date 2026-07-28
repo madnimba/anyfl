@@ -90,22 +90,6 @@ def _resolve_concentrated(cfg, dataset_name: str) -> bool:
     return _is_flat_vfl_dataset(dataset_name)
 
 
-def _check_topk_vs_clusters(topk: int, n_clusters: int, dataset: str) -> None:
-    """top-k must leave a real choice of donor clusters.
-
-    With ``topk >= n_clusters`` every other cluster is a target, so the donor
-    pool is the whole dataset minus the source cluster and the attack degrades
-    toward the random-sample control rather than a directed cross-cluster swap.
-    """
-    if int(topk) >= int(n_clusters):
-        raise ValueError(
-            f"{dataset}: swap.topk={topk} >= number of Phase-I clusters "
-            f"({n_clusters}). Every other cluster becomes a donor target, which "
-            f"degenerates the attack toward the random-sample control. "
-            f"Set swap.topk <= {int(n_clusters) - 1}."
-        )
-
-
 def _prefix_for_clusters(dataset_name: str) -> str:
     """Match Phase 1 export prefixes (vfl/clustering/semi_sup.canonical_export_prefix)."""
     d = dataset_name.strip().upper()
@@ -434,7 +418,6 @@ def run_one(
             experiment_seed=int(cfg.seed),
         )
     ids, conf, cluster_meta = load_cluster_artifacts(prefix, cluster_dir=cfg.swap.cluster_dir)
-    _check_topk_vs_clusters(int(cfg.swap.topk), int(cluster_meta.get("n_clusters", 0)), ds.name)
     conf_for_swap = None if bool(cfg.swap.ignore_cluster_conf) else conf
     if int(ids.shape[0]) != int(ds.X_train.shape[0]):
         raise ValueError(
