@@ -1,0 +1,12 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/mnist.yaml --strategy optimal_topk --seed 2 --run-tag C-mnist-s2 --job-id 34e05fd5eb37601c --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14.jsonl =====
+[DEFENSE] dataset=MNIST k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=96.61%
+[DEF] strat=optimal_topk       naked_acc=71.22% (drop_vs_clean=25.39pp) rgar_acc=84.43% (gap_vs_clean=12.18pp, +13.21pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/MNIST/k2/C-mnist-s2
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/mnist.yaml --strategy optimal_topk --seed 2 --run-tag C-mnist-s2 --job-id 34e05fd5eb37601c --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[DEFENSE] dataset=MNIST k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=96.59%
+[DEF] strat=optimal_topk       naked_acc=71.51% (drop_vs_clean=25.08pp) rgar_acc=83.97% (gap_vs_clean=12.62pp, +12.46pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/MNIST/k2/C-mnist-s2

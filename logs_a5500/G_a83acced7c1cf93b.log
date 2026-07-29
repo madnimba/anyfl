@@ -1,0 +1,7 @@
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/fashionmnist.yaml --strategy optimal_topk --seed 1 --adaptive-exclude-reference --run-tag G-fashionmnist-adaptive --job-id a83acced7c1cf93b --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[DEFENSE] dataset=Fashion-MNIST k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=87.79%
+[DEFENSE][ADAPTIVE] attacker avoids 5100 reference rows (r_ref=0.085); R stays clean but carries no attack signal
+[DEF] strat=optimal_topk       naked_acc=82.67% (drop_vs_clean= 5.12pp) rgar_acc=72.21% (gap_vs_clean=15.58pp, -10.46pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/FASHIONMNIST/k2/G-fashionmnist-adaptive

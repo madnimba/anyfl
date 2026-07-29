@@ -1,0 +1,61 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/mnist.yaml --strategy optimal_topk --seed 1 --concentrated-swap auto --run-tag C2-mnist-conc --job-id abdfca5a2a31e629 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14.jsonl =====
+/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torch/cuda/__init__.py:129: UserWarning: CUDA initialization: CUDA unknown error - this may be due to an incorrectly set up environment, e.g. changing env variable CUDA_VISIBLE_DEVICES after program start. Setting the available devices to be zero. (Triggered internally at /pytorch/c10/cuda/CUDAFunctions.cpp:109.)
+  return torch._C._cuda_getDeviceCount() > 0
+[DEFENSE] dataset=MNIST k=2 (attack+RGAR pipeline)
+Traceback (most recent call last):
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack_defense.py", line 838, in <module>
+    raise SystemExit(main())
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack_defense.py", line 823, in main
+    out = run_one_defense(
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack_defense.py", line 274, in run_one_defense
+    metrics_clean = train_clean(
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/vfl/train/loop.py", line 44, in train_clean
+    model = model.to(device)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1343, in to
+    return self._apply(convert)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 903, in _apply
+    module._apply(fn)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 903, in _apply
+    module._apply(fn)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 930, in _apply
+    param_applied = fn(param)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1329, in convert
+    return t.to(
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torch/cuda/__init__.py", line 319, in _lazy_init
+    torch._C._cuda_init()
+RuntimeError: CUDA unknown error - this may be due to an incorrectly set up environment, e.g. changing env variable CUDA_VISIBLE_DEVICES after program start. Setting the available devices to be zero.
+
+===== attempt 2 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/mnist.yaml --strategy optimal_topk --seed 1 --concentrated-swap auto --run-tag C2-mnist-conc --job-id abdfca5a2a31e629 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14.jsonl =====
+/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torch/cuda/__init__.py:129: UserWarning: CUDA initialization: CUDA unknown error - this may be due to an incorrectly set up environment, e.g. changing env variable CUDA_VISIBLE_DEVICES after program start. Setting the available devices to be zero. (Triggered internally at /pytorch/c10/cuda/CUDAFunctions.cpp:109.)
+  return torch._C._cuda_getDeviceCount() > 0
+[DEFENSE] dataset=MNIST k=2 (attack+RGAR pipeline)
+Traceback (most recent call last):
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack_defense.py", line 838, in <module>
+    raise SystemExit(main())
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack_defense.py", line 823, in main
+    out = run_one_defense(
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/scripts/run_attack_defense.py", line 274, in run_one_defense
+    metrics_clean = train_clean(
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/vfl/train/loop.py", line 44, in train_clean
+    model = model.to(device)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1343, in to
+    return self._apply(convert)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 903, in _apply
+    module._apply(fn)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 903, in _apply
+    module._apply(fn)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 930, in _apply
+    param_applied = fn(param)
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1329, in convert
+    return t.to(
+  File "/home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/lib/python3.10/site-packages/torch/cuda/__init__.py", line 319, in _lazy_init
+    torch._C._cuda_init()
+RuntimeError: CUDA unknown error - this may be due to an incorrectly set up environment, e.g. changing env variable CUDA_VISIBLE_DEVICES after program start. Setting the available devices to be zero.
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/mnist.yaml --strategy optimal_topk --seed 1 --concentrated-swap auto --run-tag C2-mnist-conc --job-id abdfca5a2a31e629 --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[DEFENSE] dataset=MNIST k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=96.53%
+[DEFENSE] MNIST: concentrated swap ENABLED (matches scripts/run_attack.py; defense numbers will differ from previously reported values)
+[DEF] strat=optimal_topk       naked_acc=31.46% (drop_vs_clean=65.07pp) rgar_acc=83.55% (gap_vs_clean=12.98pp, +52.09pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/MNIST/k2/C2-mnist-conc

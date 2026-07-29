@@ -1,0 +1,5 @@
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/ucihar.yaml --strategy random_noise --seed 1 --run-tag H-ucihar-noise --job-id 534a5ef8bd9ba8ad --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[HAR] MI recomputation differs from Phase-I artifact in 19/561 positions (near-tie reordering from a different sklearn/numpy build). Using the artifact: clusters/HAR_mi_rank_order.npy
+[CLEAN] dataset=UCI-HAR k=2 acc=95.73%
+[OK] Wrote run to: experiments/attack/runs/UCI-HAR/k2/H-ucihar-noise

@@ -1,0 +1,4 @@
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/mushroom.yaml --strategy random_noise --seed 1 --run-tag H-mushroom-noise --job-id 052d2b53270a2c35 --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[CLEAN] dataset=UCI-MUSHROOM k=2 acc=98.03%
+[OK] Wrote run to: experiments/attack/runs/UCI-MUSHROOM/k2/H-mushroom-noise

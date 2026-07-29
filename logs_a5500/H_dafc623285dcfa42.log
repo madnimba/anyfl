@@ -1,0 +1,5 @@
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/fashionmnist.yaml --strategy random_noise --seed 1 --run-tag H-fashionmnist-noise --job-id dafc623285dcfa42 --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[ATTACK] FASHIONMNIST: flat-VFL path — using concentrated swap + device=cpu
+[CLEAN] dataset=FASHIONMNIST k=2 acc=87.79%
+[OK] Wrote run to: experiments/attack/runs/FASHIONMNIST/k2/H-fashionmnist-noise

@@ -1,0 +1,6 @@
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/ucihar.yaml --strategy optimal_topk --seed 1 --swap-coverage 0.75 --run-tag E-ucihar-cov75 --job-id 274dd18501427a9e --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[HAR] MI recomputation differs from Phase-I artifact in 19/561 positions (near-tie reordering from a different sklearn/numpy build). Using the artifact: clusters/HAR_mi_rank_order.npy
+[CLEAN] dataset=UCI-HAR k=2 acc=95.73%
+[ATK] strategy=optimal_topk       acc= 93.01% drop= 2.72pp swap_rate=0.75 donor_flip=0.99
+[OK] Wrote run to: experiments/attack/runs/UCI-HAR/k2/E-ucihar-cov75

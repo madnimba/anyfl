@@ -1,0 +1,12 @@
+
+===== attempt 1 :: /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/fashionmnist.yaml --strategy optimal_topk --seed 5 --run-tag C-fashionmnist-s5 --job-id 03102dce8f179d59 --results-jsonl /home/arpita/Downloads/VFL/mnist_vfl_local_project/mnist_vfl_local/results/runs_arpita-ROG-Zephyrus-G14.jsonl =====
+[DEFENSE] dataset=Fashion-MNIST k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=87.09%
+[DEF] strat=optimal_topk       naked_acc=77.72% (drop_vs_clean= 9.37pp) rgar_acc=15.57% (gap_vs_clean=71.52pp, -62.15pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/FASHIONMNIST/k2/C-fashionmnist-s5
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/fashionmnist.yaml --strategy optimal_topk --seed 5 --run-tag C-fashionmnist-s5 --job-id 03102dce8f179d59 --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[DEFENSE] dataset=Fashion-MNIST k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=87.13%
+[DEF] strat=optimal_topk       naked_acc=69.83% (drop_vs_clean=17.30pp) rgar_acc=73.13% (gap_vs_clean=14.00pp, +3.30pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/FASHIONMNIST/k2/C-fashionmnist-s5

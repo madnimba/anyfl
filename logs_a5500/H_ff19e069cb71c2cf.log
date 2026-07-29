@@ -1,0 +1,5 @@
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/mnist.yaml --strategy random_noise --seed 1 --run-tag H-mnist-noise --job-id ff19e069cb71c2cf --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[ATTACK] MNIST: flat-VFL path — using concentrated swap + device=cpu
+[CLEAN] dataset=MNIST k=2 acc=96.53%
+[OK] Wrote run to: experiments/attack/runs/MNIST/k2/H-mnist-noise

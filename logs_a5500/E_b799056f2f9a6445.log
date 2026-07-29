@@ -1,0 +1,6 @@
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/fashionmnist.yaml --strategy optimal_topk --seed 1 --swap-coverage 0.75 --run-tag E-fashionmnist-cov75 --job-id b799056f2f9a6445 --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[ATTACK] FASHIONMNIST: flat-VFL path — using concentrated swap + device=cpu
+[CLEAN] dataset=FASHIONMNIST k=2 acc=87.79%
+[ATK] strategy=optimal_topk       acc= 85.69% drop= 2.10pp swap_rate=0.75 donor_flip=1.00
+[OK] Wrote run to: experiments/attack/runs/FASHIONMNIST/k2/E-fashionmnist-cov75

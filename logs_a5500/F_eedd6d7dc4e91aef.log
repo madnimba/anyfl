@@ -1,0 +1,10 @@
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/mnist.yaml --strategy optimal_topk --seed 1 --corrupt-ref-frac 0.10 --run-tag F-mnist-corrupt10 --job-id eedd6d7dc4e91aef --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[DEFENSE] dataset=MNIST k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=96.53%
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/mnist.yaml --strategy optimal_topk --seed 1 --corrupt-ref-frac 0.10 --run-tag F-mnist-corrupt10 --job-id eedd6d7dc4e91aef --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[DEFENSE] dataset=MNIST k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=96.53%
+[DEF] strat=optimal_topk       naked_acc=74.24% (drop_vs_clean=22.29pp) rgar_acc=82.25% (gap_vs_clean=14.28pp, +8.01pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/MNIST/k2/F-mnist-corrupt10

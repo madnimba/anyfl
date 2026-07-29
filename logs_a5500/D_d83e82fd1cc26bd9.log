@@ -1,0 +1,32 @@
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_sota_comparison.py --dataset UCI-Mushroom --seed 1 --run-tag D-mushroom-baselines --job-id d83e82fd1cc26bd9 --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[SOTA] dataset=UCI-MUSHROOM k=2 strategy=optimal_topk
+[SOTA] clean baseline acc=96.88%
+[SOTA] running: naked
+[SOTA] naked acc=73.01%
+[SOTA] running: batch_krum_gate
+[SOTA] batch_krum_gate acc=90.07% detect=3.6%
+[SOTA] running: cosine_gate
+[SOTA] cosine_gate acc=98.11% detect=23.5%
+[SOTA] running: ae_gate
+[SOTA] ae_gate acc=90.73% detect=6.6%
+[SOTA] running: rgar
+[SOTA] rgar acc=96.96% detect=100.0%
+
+Dataset: UCI-MUSHROOM  k=2  Attack: optimal_topk  Clean acc: 96.88%
+
+═════════════════════════════════════════════════════════════════════════════════════════
+ Defense               │ Detects (%) │ Acc (after) │ Collapse? │ Paper Reference             
+═════════════════════════════════════════════════════════════════════════════════════════
+ No Defense (naked)    │        0.0% │      73.01% │       NO  │ —                           
+ Batch Krum Gate       │        3.6% │      90.07% │       NO  │ Blanchard et al. NeurIPS'17 
+ Cosine Gate           │       23.5% │      98.11% │       NO  │ Cao et al. (FLTrust) NDSS'22
+ AE Gate               │        6.6% │      90.73% │       NO  │ Cho et al. (VFLIP) ESORICS'24
+ RGAR (ours)           │      100.0% │     96.96% ✓│       NO  │ This work                   
+─────────────────────────────────────────────────────────────────────────────────────────
+ Clean (no attack)     │           — │      96.88% │         — │                             
+═════════════════════════════════════════════════════════════════════════════════════════
+
+ Attack drop (naked):  23.87 pp  |  RGAR recovery: +23.95 pp vs naked  |  Gap to clean: -0.08 pp
+
+[SOTA] Results written to: experiments/defense/sota_comparison/runs/UCI-MUSHROOM/k2/D-mushroom-baselines

@@ -1,0 +1,6 @@
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/mnist.yaml --strategy optimal_topk --seed 1 --rgar-recon-mode proto_a --run-tag K-mnist-proto --job-id 851d56d921318579 --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[DEFENSE] dataset=MNIST k=2 (attack+RGAR pipeline)
+[DEFENSE] clean baseline acc=96.53%
+[DEF] strat=optimal_topk       naked_acc=74.24% (drop_vs_clean=22.29pp) rgar_acc=71.93% (gap_vs_clean=24.60pp, -2.31pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/MNIST/k2/K-mnist-proto

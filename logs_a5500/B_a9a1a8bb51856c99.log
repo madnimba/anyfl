@@ -1,0 +1,7 @@
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/cifar10_bs512.yaml --strategy optimal_topk --seed 2 --run-tag B-cifar10-s2 --job-id a9a1a8bb51856c99 --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[CLEAN] dataset=CIFAR10 k=2 acc=88.28%
+[PROBE] dataset=CIFAR10 k=2 chose attacker_client_idx=0 (drop=0.1652)
+[EMBED] clean attacker encoder geometry N=50000 D=256 -> experiments/attack/runs/CIFAR10/k2/B-cifar10-s2/clean/attacker_train_embeddings.npy
+[ATK] strategy=optimal_topk       acc= 44.00% drop=44.28pp swap_rate=1.00 donor_flip=1.00
+[OK] Wrote run to: experiments/attack/runs/CIFAR10/k2/B-cifar10-s2

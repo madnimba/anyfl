@@ -1,0 +1,75 @@
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_sota_comparison.py --dataset Fashion-MNIST --seed 1 --run-tag D-fashionmnist-baselines --job-id 52779259ce81b3e2 --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[SOTA] Fashion-MNIST: flat-VFL path — concentrated swap + device overridden to cpu
+[SOTA] dataset=Fashion-MNIST k=2 strategy=optimal_topk
+[SOTA] clean baseline acc=87.27%
+[SOTA] running: naked
+[SOTA] naked acc=33.59%
+[SOTA] running: batch_krum_gate
+Traceback (most recent call last):
+  File "/home/user/jarin/anyfl/scripts/run_sota_comparison.py", line 847, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/home/user/jarin/anyfl/scripts/run_sota_comparison.py", line 829, in main
+    run_sota_comparison(
+    ~~~~~~~~~~~~~~~~~~~^
+        dataset=args.dataset,
+        ^^^^^^^^^^^^^^^^^^^^^
+    ...<10 lines>...
+        epochs=args.epochs,
+        ^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/user/jarin/anyfl/scripts/run_sota_comparison.py", line 610, in run_sota_comparison
+    met_k, dmeta_k = train_with_batch_krum_gate(
+                     ~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        m, **_NAIVE_KWARGS, tau_sigma=float(tau_sigma), suppress_mode=_bank_suppress
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/user/jarin/anyfl/vfl/defense/naive_defenses.py", line 581, in train_with_batch_krum_gate
+    return _train_with_naive_gate(
+        model,
+    ...<5 lines>...
+        suppress_mode=suppress_mode,
+    )
+  File "/home/user/jarin/anyfl/vfl/defense/naive_defenses.py", line 453, in _train_with_naive_gate
+    flag = gate_fn(ha.detach(), y, ref_state)
+  File "/home/user/jarin/anyfl/.venv/lib/python3.13/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+    return func(*args, **kwargs)
+  File "/home/user/jarin/anyfl/vfl/defense/naive_defenses.py", line 303, in _krum_flag
+    dists = (diff ** 2).sum(-1)                            # [B, B]
+KeyboardInterrupt
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_sota_comparison.py --dataset Fashion-MNIST --seed 1 --run-tag D-fashionmnist-baselines --job-id 52779259ce81b3e2 --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[SOTA] Fashion-MNIST: flat-VFL path — concentrated swap + device overridden to cpu
+[SOTA] dataset=Fashion-MNIST k=2 strategy=optimal_topk
+[SOTA] clean baseline acc=87.27%
+[SOTA] running: naked
+[SOTA] naked acc=33.59%
+[SOTA] running: batch_krum_gate
+[SOTA] batch_krum_gate acc=41.42% detect=4.3%
+[SOTA] running: cosine_gate
+[SOTA] cosine_gate acc=13.90% detect=99.9%
+[SOTA] running: ae_gate
+[SOTA] ae_gate acc=31.75% detect=17.8%
+[SOTA] running: rgar
+[SOTA] rgar acc=73.83% detect=100.0%
+
+Dataset: FASHIONMNIST  k=2  Attack: optimal_topk  Clean acc: 87.27%
+
+═════════════════════════════════════════════════════════════════════════════════════════
+ Defense               │ Detects (%) │ Acc (after) │ Collapse? │ Paper Reference             
+═════════════════════════════════════════════════════════════════════════════════════════
+ No Defense (naked)    │        0.0% │     33.59% ▼│       YES │ —                           
+ Batch Krum Gate       │        4.3% │     41.42% ▼│       YES │ Blanchard et al. NeurIPS'17 
+ Cosine Gate           │       99.9% │     13.90% ▼│       YES │ Cao et al. (FLTrust) NDSS'22
+ AE Gate               │       17.8% │     31.75% ▼│       YES │ Cho et al. (VFLIP) ESORICS'24
+ RGAR (ours)           │      100.0% │     73.83% ✓│       NO  │ This work                   
+─────────────────────────────────────────────────────────────────────────────────────────
+ Clean (no attack)     │           — │      87.27% │         — │                             
+═════════════════════════════════════════════════════════════════════════════════════════
+
+ Attack drop (naked):  53.68 pp  |  RGAR recovery: +40.24 pp vs naked  |  Gap to clean: 13.44 pp
+
+[SOTA] Results written to: experiments/defense/sota_comparison/runs/FASHIONMNIST/k2/D-fashionmnist-baselines

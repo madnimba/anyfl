@@ -1,0 +1,8 @@
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/ucihar.yaml --strategy optimal_topk --seed 1 --adaptive-exclude-reference --run-tag G-ucihar-adaptive --job-id 2ff74290db7515b9 --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[DEFENSE] dataset=UCI-HAR k=2 (attack+RGAR pipeline)
+[HAR] MI recomputation differs from Phase-I artifact in 19/561 positions (near-tie reordering from a different sklearn/numpy build). Using the artifact: clusters/HAR_mi_rank_order.npy
+[DEFENSE] clean baseline acc=95.73%
+[DEFENSE][ADAPTIVE] attacker avoids 1398 reference rows (r_ref=0.160); R stays clean but carries no attack signal
+[DEF] strat=optimal_topk       naked_acc=89.64% (drop_vs_clean= 6.08pp) rgar_acc=88.67% (gap_vs_clean= 7.06pp, -0.97pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/UCI-HAR/k2/G-ucihar-adaptive

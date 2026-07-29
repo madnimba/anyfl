@@ -1,0 +1,6 @@
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/mnist.yaml --strategy optimal_topk --seed 1 --swap-coverage 0.75 --run-tag E-mnist-cov75 --job-id 1803e3c8f8bf7f88 --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[ATTACK] MNIST: flat-VFL path — using concentrated swap + device=cpu
+[CLEAN] dataset=MNIST k=2 acc=96.53%
+[ATK] strategy=optimal_topk       acc= 93.49% drop= 3.04pp swap_rate=0.75 donor_flip=0.98
+[OK] Wrote run to: experiments/attack/runs/MNIST/k2/E-mnist-cov75

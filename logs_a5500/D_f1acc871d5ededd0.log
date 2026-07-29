@@ -1,0 +1,34 @@
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_sota_comparison.py --dataset UCI-HAR --seed 1 --run-tag D-ucihar-baselines --job-id f1acc871d5ededd0 --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[SOTA] UCI-HAR: tabular-asymmetric path — (learnable 96-D attacker, weak linear passive). Naive defenses: krum≈naked, cosine≈0-50%det, ae≈100%det+h_B-fallback.
+[SOTA] dataset=UCI-HAR k=2 strategy=optimal_topk
+[HAR] MI recomputation differs from Phase-I artifact in 19/561 positions (near-tie reordering from a different sklearn/numpy build). Using the artifact: clusters/HAR_mi_rank_order.npy
+[SOTA] clean baseline acc=97.61%
+[SOTA] running: naked
+[SOTA] naked acc=14.63%
+[SOTA] running: batch_krum_gate
+[SOTA] batch_krum_gate acc=18.58% detect=4.5%
+[SOTA] running: cosine_gate
+[SOTA] cosine_gate acc=74.56% detect=97.0%
+[SOTA] running: ae_gate
+[SOTA] ae_gate acc=27.25% detect=10.4%
+[SOTA] running: rgar
+[SOTA] rgar acc=83.62% detect=99.9%
+
+Dataset: UCI-HAR  k=2  Attack: optimal_topk  Clean acc: 97.61%
+
+═════════════════════════════════════════════════════════════════════════════════════════
+ Defense               │ Detects (%) │ Acc (after) │ Collapse? │ Paper Reference             
+═════════════════════════════════════════════════════════════════════════════════════════
+ No Defense (naked)    │        0.0% │     14.63% ▼│       YES │ —                           
+ Batch Krum Gate       │        4.5% │     18.58% ▼│       YES │ Blanchard et al. NeurIPS'17 
+ Cosine Gate           │       97.0% │      74.56% │       NO  │ Cao et al. (FLTrust) NDSS'22
+ AE Gate               │       10.4% │     27.25% ▼│       YES │ Cho et al. (VFLIP) ESORICS'24
+ RGAR (ours)           │       99.9% │     83.62% ✓│       NO  │ This work                   
+─────────────────────────────────────────────────────────────────────────────────────────
+ Clean (no attack)     │           — │      97.61% │         — │                             
+═════════════════════════════════════════════════════════════════════════════════════════
+
+ Attack drop (naked):  82.98 pp  |  RGAR recovery: +69.00 pp vs naked  |  Gap to clean: 13.98 pp
+
+[SOTA] Results written to: experiments/defense/sota_comparison/runs/UCI-HAR/k2/D-ucihar-baselines

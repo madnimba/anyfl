@@ -1,0 +1,79 @@
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_sota_comparison.py --dataset UCI-BANK --seed 1 --run-tag D-bank-baselines --job-id 4320f95a92dd515a --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[SOTA] UCI-BANK: tabular-asymmetric path — (learnable 96-D attacker, weak linear passive). Naive defenses: krum≈naked, cosine≈0-50%det, ae≈100%det+h_B-fallback.
+[SOTA] dataset=UCI-BANK k=2 strategy=class_flip
+[SOTA] clean baseline acc=89.53%
+[SOTA] running: naked
+[SOTA] naked acc=47.48%
+[SOTA] UCI-BANK: using suppress_mode=exclude for naive gates (prevents h_B majority-class fallback and minority-class zeroing)
+[SOTA] running: batch_krum_gate
+Traceback (most recent call last):
+  File "/home/user/jarin/anyfl/scripts/run_sota_comparison.py", line 847, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/home/user/jarin/anyfl/scripts/run_sota_comparison.py", line 829, in main
+    run_sota_comparison(
+    ~~~~~~~~~~~~~~~~~~~^
+        dataset=args.dataset,
+        ^^^^^^^^^^^^^^^^^^^^^
+    ...<10 lines>...
+        epochs=args.epochs,
+        ^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/user/jarin/anyfl/scripts/run_sota_comparison.py", line 610, in run_sota_comparison
+    met_k, dmeta_k = train_with_batch_krum_gate(
+                     ~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        m, **_NAIVE_KWARGS, tau_sigma=float(tau_sigma), suppress_mode=_bank_suppress
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/user/jarin/anyfl/vfl/defense/naive_defenses.py", line 581, in train_with_batch_krum_gate
+    return _train_with_naive_gate(
+        model,
+    ...<5 lines>...
+        suppress_mode=suppress_mode,
+    )
+  File "/home/user/jarin/anyfl/vfl/defense/naive_defenses.py", line 453, in _train_with_naive_gate
+    flag = gate_fn(ha.detach(), y, ref_state)
+  File "/home/user/jarin/anyfl/.venv/lib/python3.13/site-packages/torch/utils/_contextlib.py", line 123, in decorate_context
+    with ctx_factory():
+         ~~~~~~~~~~~^^
+  File "/home/user/jarin/anyfl/.venv/lib/python3.13/site-packages/torch/autograd/grad_mode.py", line 85, in __exit__
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+    
+KeyboardInterrupt
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_sota_comparison.py --dataset UCI-BANK --seed 1 --run-tag D-bank-baselines --job-id 4320f95a92dd515a --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[SOTA] UCI-BANK: tabular-asymmetric path — (learnable 96-D attacker, weak linear passive). Naive defenses: krum≈naked, cosine≈0-50%det, ae≈100%det+h_B-fallback.
+[SOTA] dataset=UCI-BANK k=2 strategy=class_flip
+[SOTA] clean baseline acc=89.53%
+[SOTA] running: naked
+[SOTA] naked acc=47.48%
+[SOTA] UCI-BANK: using suppress_mode=exclude for naive gates (prevents h_B majority-class fallback and minority-class zeroing)
+[SOTA] running: batch_krum_gate
+[SOTA] batch_krum_gate acc=44.74% detect=2.8%
+[SOTA] running: cosine_gate
+[SOTA] cosine_gate acc=36.93% detect=21.9%
+[SOTA] running: ae_gate
+[SOTA] ae_gate acc=33.51% detect=25.2%
+[SOTA] running: rgar
+[SOTA] rgar acc=85.91% detect=99.4%
+
+Dataset: UCI-BANK  k=2  Attack: class_flip  Clean acc: 89.53%
+
+═════════════════════════════════════════════════════════════════════════════════════════
+ Defense               │ Detects (%) │ Acc (after) │ Collapse? │ Paper Reference             
+═════════════════════════════════════════════════════════════════════════════════════════
+ No Defense (naked)    │        0.0% │     47.48% ▼│       YES │ —                           
+ Batch Krum Gate       │        2.8% │     44.74% ▼│       YES │ Blanchard et al. NeurIPS'17 
+ Cosine Gate           │       21.9% │     36.93% ▼│       YES │ Cao et al. (FLTrust) NDSS'22
+ AE Gate               │       25.2% │     33.51% ▼│       YES │ Cho et al. (VFLIP) ESORICS'24
+ RGAR (ours)           │       99.4% │     85.91% ✓│       NO  │ This work                   
+─────────────────────────────────────────────────────────────────────────────────────────
+ Clean (no attack)     │           — │      89.53% │         — │                             
+═════════════════════════════════════════════════════════════════════════════════════════
+
+ Attack drop (naked):  42.04 pp  |  RGAR recovery: +38.43 pp vs naked  |  Gap to clean: 3.62 pp
+
+[SOTA] Results written to: experiments/defense/sota_comparison/runs/UCI-BANK/k2/D-bank-baselines

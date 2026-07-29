@@ -1,0 +1,4 @@
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_attack.py --config experiments/attack/configs/bank.yaml --strategy random_noise --seed 1 --run-tag H-bank-noise --job-id e9c0c1c2d4ce6912 --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[CLEAN] dataset=UCI-BANK k=2 acc=89.22%
+[OK] Wrote run to: experiments/attack/runs/UCI-BANK/k2/H-bank-noise

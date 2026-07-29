@@ -1,0 +1,7 @@
+
+===== attempt 1 :: /home/user/jarin/anyfl/.venv/bin/python scripts/run_attack_defense.py --config experiments/defense/configs/ucihar.yaml --strategy optimal_topk --seed 1 --r-ref 0.01 --run-tag F-ucihar-rref0.01 --job-id 1f88517af38c4818 --results-jsonl /home/user/jarin/anyfl/results/runs_user-Precision-3660.jsonl =====
+[DEFENSE] dataset=UCI-HAR k=2 (attack+RGAR pipeline)
+[HAR] MI recomputation differs from Phase-I artifact in 19/561 positions (near-tie reordering from a different sklearn/numpy build). Using the artifact: clusters/HAR_mi_rank_order.npy
+[DEFENSE] clean baseline acc=95.73%
+[DEF] strat=optimal_topk       naked_acc=13.27% (drop_vs_clean=82.46pp) rgar_acc=68.87% (gap_vs_clean=26.86pp, +55.60pp vs naked)
+[OK] Wrote defense run to: experiments/defense/runs/UCI-HAR/k2/F-ucihar-rref0.01
